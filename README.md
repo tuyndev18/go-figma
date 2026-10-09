@@ -4,7 +4,7 @@
 
 A Figma plugin that turns the selected layers into **HTML + CSS**, **React + Tailwind (v4)** or **HTML + Tailwind**, plus an **MCP server** that lets Claude Code, Codex, Cursor… read the design and write code that fits your codebase.
 
-![GoApp Figma: select a frame, the code updates live](docs/images/overview.png)
+<!-- ![GoApp Figma: select a frame, the code updates live](docs/images/overview.png) -->
 
 - Works in both **Design mode** (plugin window with a live preview) and **Dev Mode** (Figma's native Code panel).
 - **Export a runnable project**: a static site or a Next.js App Router app, images included.
@@ -18,6 +18,7 @@ A Figma plugin that turns the selected layers into **HTML + CSS**, **React + Tai
 - [Usage](#usage)
 - [Export project](#export-project)
 - [Merging frames into one page](#merging-frames-into-one-page)
+- [Data flow: Figma → plugin UI](#data-flow-figma--plugin-ui-no-network)
 - [MCP for AI agents](#mcp-for-ai-agents-claude-code-codex-cursor)
 - [Data flow: Figma → AI](#data-flow-figma--ai)
 - [Architecture](#architecture)
@@ -53,13 +54,13 @@ Run the plugin and select a frame. The code updates whenever the selection or th
 | Copy · Images · Export | Copy the code, download images as a zip, export the whole project |
 | **Copy for AI** | Copy a prompt that has an agent read the selection over MCP |
 
-![Preview tab](docs/images/preview.png)
+<!-- ![Preview tab](docs/images/preview.png) -->
 
 ### Dev Mode
 
 Open the **Code** panel and pick "HTML + CSS" / "React + Tailwind" / "HTML + Tailwind".
 
-![Dev Mode – Code panel](docs/images/dev-mode.png)
+<!-- ![Dev Mode – Code panel](docs/images/dev-mode.png) -->
 
 ## Export project
 
@@ -93,7 +94,7 @@ Only one mode applies per merge; breakpoints × states cannot be combined.
 
 Select frames of the same screen at different sizes, choose **Responsive**, then check the Mobile / Tablet / Desktop tag of each frame.
 
-![Pages = Responsive](docs/images/responsive.png)
+<!-- ![Pages = Responsive](docs/images/responsive.png) -->
 
 The frames merge into **one** mobile-first page:
 
@@ -106,7 +107,7 @@ The frames merge into **one** mobile-first page:
 
 Select frames that are states of the same screen, choose **States**, then rename the states if needed. The first frame with a state (in selection order) is the **default** state.
 
-![Pages = States](docs/images/states.png)
+<!-- ![Pages = States](docs/images/states.png) -->
 
 - The default state provides the base styles. Every other state overrides only what differs from the default, never from the previous state. The page root carries `data-state="<state>"`.
 - HTML + CSS: `.<root>[data-state="<state>"] .<class> { … }`.
@@ -115,6 +116,32 @@ Select frames that are states of the same screen, choose **States**, then rename
 - Static site export: a small script reads `?state=<state>` from the URL.
 - Frames keep their size; unlike Responsive, they are not turned into `width: 100%`.
 - The preview has a state switcher.
+
+## Data flow: Figma → plugin UI (no network)
+
+![Data flow inside the plugin: Figma document → sandbox → plugin UI → preview](docs/images/plugin-flow.svg)
+
+The plugin window never calls a server. Figma data is read and turned into code in the sandbox, then sent to the window with `postMessage`. The window is one static file, `dist/ui.html`, with the React bundle inlined because Figma accepts only a single HTML file. At runtime it loads nothing except Google Fonts for the preview.
+
+### Steps
+
+1. **Trigger.** `selectionchange`, `nodechange` on the current page (only for edits inside the selected layers; temporary layers the plugin creates while exporting are ignored), `currentpagechange`, a settings change or a Pages tag. Runs are debounced by 150ms and never overlap: a change during a run triggers one more run after it, and the stale result is dropped.
+2. **Size check.** The sandbox counts the layers (at most 3000, otherwise an error) and posts `loading`.
+3. **`normalize`**, the only module that reads the Figma API: position from `absoluteTransform`, auto layout, sizing, constraints, fills / strokes / effects, text segments, variables, main components, annotations, vectors exported as `SVG_STRING`, image bytes from `getImageByHash`. Figma may fetch library components and image bytes over its own connection, so those lookups have a timeout (4s for libraries, 15s for images) and are skipped for 60s after a failure, so an offline Figma never hangs a run. Image bytes are cached across runs (the 100 most recent). Output: the **IR**, plain data with no Figma dependency.
+4. **`generate`.** IR → styled tree (`css.ts`) → generator for the selected target. A separate preview is always HTML + CSS, with images pointing at `goapp-figma-image:<hash>` placeholders. Merged pages get one preview size per breakpoint or state.
+5. **Sandbox → UI.** An `images` message carries the bytes of images the window does not have yet (each sent once per session), then `result` carries the code sections, `previewHtml`, preview sizes, warnings and image references, plus `source` (file name, frames, tags) for the Pages bar and **Copy for AI**.
+6. **UI.** Highlights the code, estimates tokens and swaps the placeholders for data URIs (images over 256 KB are downscaled to ≤ 1600px). The previous preview stays on screen until the new one is ready.
+7. **Preview iframe.** `srcdoc` with `sandbox="allow-same-origin"` (scripts disabled), scaled to the window, with a viewport / state switcher for merged pages.
+
+### Other paths
+
+| Action | Path |
+| --- | --- |
+| Export | Sandbox: `normalize` → `buildProject` → `project` message → UI: `optimizeFiles` → zip built in the window and downloaded |
+| Download images | UI: zip of the image bytes the window already holds (after `optimizeFiles`) |
+| Settings | Saved in `figma.clientStorage`, then a rerun |
+| Pages tags | Saved as `pluginData` on each frame, then a rerun |
+| Dev Mode | `figma.codegen.on("generate")` → the same `normalize` + `generate` → code blocks in Figma's Code panel; no window, no preview |
 
 ## MCP for AI agents (Claude Code, Codex, Cursor…)
 
@@ -149,7 +176,7 @@ Then open the plugin in Figma Desktop (Design mode or Dev Mode inspect) and **ke
 
 Click **MCP** on the toolbar to open the management panel.
 
-![MCP panel](docs/images/mcp-panel.png)
+<!-- ![MCP panel](docs/images/mcp-panel.png) -->
 
 - **Connected agents**: agent sessions using GoApp Figma, their project folder, number of tool calls and the latest tool called. The number on `MCP · n` is the count of connected sessions. A yellow dot means the server is running but no agent uses it yet.
 - **Agents**: add / remove / update the `goapp-figma` entry in each agent's user-level MCP config, without typing commands:

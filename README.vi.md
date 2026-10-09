@@ -4,7 +4,7 @@
 
 Plugin Figma chuyển layer đang chọn thành **HTML + CSS**, **React + Tailwind (v4)** hoặc **HTML + Tailwind**, kèm một **MCP server** để Claude Code, Codex, Cursor… đọc design và tự viết code theo codebase.
 
-![Plugin GoApp Figma: chọn frame, code tự cập nhật](docs/images/overview.png)
+<!-- ![Plugin GoApp Figma: chọn frame, code tự cập nhật](docs/images/overview.png) -->
 
 - Chạy ở cả **Design mode** (cửa sổ plugin có preview) và **Dev Mode** (panel Code gốc của Figma).
 - **Export project** chạy được: site tĩnh hoặc Next.js App Router, ảnh đi kèm.
@@ -18,6 +18,7 @@ Plugin Figma chuyển layer đang chọn thành **HTML + CSS**, **React + Tailwi
 - [Sử dụng](#sử-dụng)
 - [Export project](#export-project)
 - [Gộp nhiều frame thành 1 page](#gộp-nhiều-frame-thành-1-page)
+- [Luồng dữ liệu: Figma → UI plugin](#luồng-dữ-liệu-figma--ui-plugin-không-mạng)
 - [MCP cho AI agent](#mcp-cho-ai-agent-claude-code-codex-cursor)
 - [Luồng dữ liệu: Figma → AI](#luồng-dữ-liệu-figma--ai)
 - [Kiến trúc](#kiến-trúc)
@@ -53,13 +54,13 @@ Chạy plugin, chọn một frame. Code tự cập nhật khi đổi selection h
 | Copy · Tải ảnh · Export | Copy code, tải ảnh dạng zip, export cả project |
 | **Copy for AI** | Copy prompt cho agent đọc selection qua MCP |
 
-![Tab Preview](docs/images/preview.png)
+<!-- ![Tab Preview](docs/images/preview.png) -->
 
 ### Dev Mode
 
 Mở panel **Code**, chọn ngôn ngữ "HTML + CSS" / "React + Tailwind" / "HTML + Tailwind".
 
-![Dev Mode – panel Code](docs/images/dev-mode.png)
+<!-- ![Dev Mode – panel Code](docs/images/dev-mode.png) -->
 
 ## Export project
 
@@ -93,7 +94,7 @@ Chỉ một trong hai chế độ được dùng cho một lần gộp, không k
 
 Chọn các frame của cùng một màn ở các kích thước khác nhau, chọn **Responsive** rồi kiểm tra Mobile / Tablet / Desktop của mỗi frame.
 
-![Pages = Responsive](docs/images/responsive.png)
+<!-- ![Pages = Responsive](docs/images/responsive.png) -->
 
 Các frame gộp thành **một** page, viết theo kiểu mobile-first:
 
@@ -106,7 +107,7 @@ Các frame gộp thành **một** page, viết theo kiểu mobile-first:
 
 Chọn các frame là các trạng thái của cùng một màn, chọn **States** rồi sửa tên state nếu cần. Frame có state đầu tiên (theo thứ tự chọn) là trạng thái **default**.
 
-![Pages = States](docs/images/states.png)
+<!-- ![Pages = States](docs/images/states.png) -->
 
 - State default làm style gốc. Mỗi state khác chỉ override phần khác so với default, không so với state trước nó. Root của page có `data-state="<state>"`.
 - HTML + CSS: `.<root>[data-state="<state>"] .<class> { … }`.
@@ -115,6 +116,32 @@ Chọn các frame là các trạng thái của cùng một màn, chọn **States
 - Site tĩnh export: có một script nhỏ đọc `?state=<state>` từ URL.
 - Frame giữ nguyên kích thước, không chuyển thành `width: 100%` như Responsive.
 - Preview có nút chuyển giữa các state.
+
+## Luồng dữ liệu: Figma → UI plugin (không mạng)
+
+![Luồng dữ liệu trong plugin: Figma → sandbox → UI plugin → preview](docs/images/plugin-flow.vi.svg)
+
+Cửa sổ plugin không gọi server nào. Dữ liệu Figma được đọc và chuyển thành code trong sandbox, rồi gửi sang cửa sổ bằng `postMessage`. Cửa sổ là một file tĩnh duy nhất, `dist/ui.html`, bundle React được nhúng thẳng vào vì Figma chỉ nhận một file HTML. Khi chạy, nó không tải gì ngoài Google Fonts cho preview.
+
+### Các bước
+
+1. **Kích hoạt.** `selectionchange`, `nodechange` trên page hiện tại (chỉ khi sửa layer nằm trong selection; layer tạm plugin tạo lúc export bị bỏ qua), `currentpagechange`, đổi settings hoặc tag Pages. Debounce 150ms, không bao giờ chạy chồng: có thay đổi trong lúc đang chạy thì chạy thêm một lần sau đó và bỏ kết quả cũ.
+2. **Kiểm tra kích thước.** Sandbox đếm layer (tối đa 3000, quá thì báo lỗi) và gửi `loading`.
+3. **`normalize`**, module duy nhất đọc Figma API: vị trí từ `absoluteTransform`, auto layout, sizing, constraints, fill / stroke / effect, text segment, variable, main component, annotation, vector export thành `SVG_STRING`, bytes ảnh từ `getImageByHash`. Figma có thể tải component library và bytes ảnh qua kết nối riêng của nó, nên các lần tra này có timeout (library 4s, ảnh 15s) và bị bỏ qua 60s sau khi lỗi, để Figma mất mạng không làm treo lần chạy. Bytes ảnh được cache giữa các lần chạy (100 ảnh gần nhất). Kết quả: **IR**, dữ liệu thuần không phụ thuộc Figma.
+4. **`generate`.** IR → styled tree (`css.ts`) → generator theo target đang chọn. Preview riêng luôn là HTML + CSS, ảnh trỏ tới placeholder `goapp-figma-image:<hash>`. Page gộp có một kích thước preview cho mỗi breakpoint hoặc state.
+5. **Sandbox → UI.** Message `images` mang bytes của ảnh cửa sổ chưa có (mỗi ảnh gửi một lần mỗi phiên), sau đó `result` mang các section code, `previewHtml`, kích thước preview, cảnh báo và tham chiếu ảnh, kèm `source` (tên file, frame, tag) cho thanh Pages và **Copy for AI**.
+6. **UI.** Tô màu code, ước lượng token, thay placeholder bằng data URI (ảnh trên 256 KB được thu về ≤ 1600px). Preview cũ giữ nguyên tới khi preview mới sẵn sàng.
+7. **Preview iframe.** `srcdoc` với `sandbox="allow-same-origin"` (không chạy script), thu phóng vừa cửa sổ, có nút chuyển viewport / state cho page gộp.
+
+### Các luồng khác
+
+| Thao tác | Luồng |
+| --- | --- |
+| Export | Sandbox: `normalize` → `buildProject` → message `project` → UI: `optimizeFiles` → zip tạo ngay trong cửa sổ rồi tải về |
+| Tải ảnh | UI: zip bytes ảnh cửa sổ đang giữ (sau `optimizeFiles`) |
+| Settings | Lưu vào `figma.clientStorage`, rồi chạy lại |
+| Tag Pages | Lưu thành `pluginData` trên từng frame, rồi chạy lại |
+| Dev Mode | `figma.codegen.on("generate")` → cùng `normalize` + `generate` → khối code trong panel Code của Figma; không cửa sổ, không preview |
 
 ## MCP cho AI agent (Claude Code, Codex, Cursor…)
 
@@ -149,7 +176,7 @@ Sau đó mở plugin trong Figma Desktop (Design mode hoặc Dev Mode inspect) v
 
 Bấm nút **MCP** trên toolbar để mở panel quản lý.
 
-![Panel MCP](docs/images/mcp-panel.png)
+<!-- ![Panel MCP](docs/images/mcp-panel.png) -->
 
 - **Connected agents**: các phiên agent đang dùng GoApp Figma, thư mục project, số lần gọi tool và tool gọi gần nhất. Số trên nút `MCP · n` là số phiên đang nối. Chấm vàng = server đang chạy nhưng chưa agent nào dùng.
 - **Agents**: thêm / gỡ / cập nhật entry `goapp-figma` trong config MCP cấp user của từng agent, không cần gõ lệnh:
