@@ -125,13 +125,13 @@ Cửa sổ plugin không gọi server nào. Dữ liệu Figma được đọc v�
 
 ### Các bước
 
-1. **Kích hoạt.** `selectionchange`, `nodechange` trên page hiện tại (chỉ khi sửa layer nằm trong selection; layer tạm plugin tạo lúc export bị bỏ qua), `currentpagechange`, đổi settings hoặc tag Pages. Debounce 150ms, không bao giờ chạy chồng: có thay đổi trong lúc đang chạy thì chạy thêm một lần sau đó và bỏ kết quả cũ.
-2. **Kiểm tra kích thước.** Sandbox đếm layer (tối đa 3000, quá thì báo lỗi) và gửi `loading`.
-3. **`normalize`**, module duy nhất đọc Figma API: vị trí từ `absoluteTransform`, auto layout, sizing, constraints, fill / stroke / effect, text segment, variable, main component, annotation, vector export thành `SVG_STRING`, bytes ảnh từ `getImageByHash`. Figma có thể tải component library và bytes ảnh qua kết nối riêng của nó, nên các lần tra này có timeout (library 4s, ảnh 15s) và bị bỏ qua 60s sau khi lỗi, để Figma mất mạng không làm treo lần chạy. Bytes ảnh được cache giữa các lần chạy (100 ảnh gần nhất). Kết quả: **IR**, dữ liệu thuần không phụ thuộc Figma.
-4. **`generate`.** IR → styled tree (`css.ts`) → generator theo target đang chọn. Preview riêng luôn là HTML + CSS, ảnh trỏ tới placeholder `goapp-figma-image:<hash>`. Page gộp có một kích thước preview cho mỗi breakpoint hoặc state.
-5. **Sandbox → UI.** Message `images` mang bytes của ảnh cửa sổ chưa có (mỗi ảnh gửi một lần mỗi phiên), sau đó `result` mang các section code, `previewHtml`, kích thước preview, cảnh báo và tham chiếu ảnh, kèm `source` (tên file, frame, tag) cho thanh Pages và **Copy for AI**.
-6. **UI.** Tô màu code, ước lượng token, thay placeholder bằng data URI (ảnh trên 256 KB được thu về ≤ 1600px). Preview cũ giữ nguyên tới khi preview mới sẵn sàng.
-7. **Preview iframe.** `srcdoc` với `sandbox="allow-same-origin"` (không chạy script), thu phóng vừa cửa sổ, có nút chuyển viewport / state cho page gộp.
+1. **Kích hoạt.** `selectionchange`, `nodechange` trên page hiện tại (chỉ khi sửa layer nằm trong selection; layer tạm plugin tạo lúc export bị bỏ qua), `currentpagechange`, đổi settings hoặc tag Pages. Debounce 150ms, không bao giờ chạy chồng: có thay đổi trong lúc đang chạy thì lần đang chạy dừng ở điểm nghỉ kế tiếp và chạy thêm một lần.
+2. **Đếm.** Sandbox đếm layer (không giới hạn) và gửi `loading` kèm số layer.
+3. **`normalize`**, module duy nhất đọc Figma API: vị trí từ `absoluteTransform`, auto layout, sizing, constraints, fill / stroke / effect, text segment, variable, main component, annotation, vector export thành `SVG_STRING`, bytes ảnh từ `getImageByHash`. Figma có thể tải component library và bytes ảnh qua kết nối riêng của nó, nên các lần tra này có timeout (library 4s, ảnh 15s) và bị bỏ qua 60s sau khi lỗi, để Figma mất mạng không làm treo lần chạy. Bytes ảnh được cache giữa các lần chạy (100 ảnh gần nhất). Cứ 40ms nó trả thread cho Figma, để frame lớn không làm đứng editor, và gửi `progress` (số layer đã đọc trên tổng). Kết quả: **IR**, dữ liệu thuần không phụ thuộc Figma.
+4. **`generate`** (gửi dưới dạng phase `generate`). IR → styled tree (`css.ts`) → generator theo target đang chọn. Preview riêng luôn là HTML + CSS, ảnh trỏ tới placeholder `goapp-figma-image:<hash>`. Page gộp có một kích thước preview cho mỗi breakpoint hoặc state.
+5. **Sandbox → UI.** Message `images` mang bytes của ảnh cửa sổ chưa có (mỗi ảnh gửi một lần mỗi phiên), sau đó `result` mang các section code, `previewHtml`, kích thước preview, cảnh báo và tham chiếu ảnh, kèm `source` (tên file, frame, tag) cho thanh Pages và **Copy for AI**, và `stats` (số layer, thời gian đọc và generate) hiện trên thanh tab.
+6. **UI.** Hiện tiến độ và thời gian đã chạy trong lúc chạy. Tô màu code (file trên 1500 dòng chỉ render các dòng đang thấy), ước lượng token, thay placeholder bằng data URI (ảnh trên 256 KB được thu về ≤ 1600px). Preview cũ giữ nguyên tới khi preview mới sẵn sàng.
+7. **Preview iframe.** `srcdoc` với `sandbox="allow-same-origin"` (không chạy script), thu phóng vừa cửa sổ, có nút chuyển viewport / state cho page gộp. Preview trên 2000 element tải các section đầu trước, rồi nối phần còn lại khi cuộn tới và chạy nền.
 
 ### Các luồng khác
 
@@ -244,7 +244,7 @@ Mỗi phần tử trong code tham chiếu mang `data-node-id`, `data-name`, `dat
 2. **Agent → `mcp.mjs`** qua stdio (JSON-RPC của MCP). Server đổi `url` thành node id + file key; các link thuộc nhiều file khác nhau bị từ chối.
 3. **`mcp.mjs` → plugin UI** qua WebSocket `ws://localhost:3940/plugin`. Process là peer thì chuyển request qua hub. Plugin chưa nối thì hub chờ 6s rồi báo lỗi; mỗi request có hạn 120s. Mỗi lần gọi được đếm để hiện trong panel MCP.
 4. **Plugin UI → sandbox** qua `postMessage`. UI chỉ chuyển tiếp, mọi việc với Figma API làm trong sandbox.
-5. **Sandbox** chạy cùng pipeline với cửa sổ plugin (`src/plugin/bridge.ts`): kiểm tra link đúng file đang mở → lấy node (selection hoặc `nodeIds`; link tới page → các layer cấp 1; tối đa 3000 layer) → `normalize` → IR → generator.
+5. **Sandbox** chạy cùng pipeline với cửa sổ plugin (`src/plugin/bridge.ts`): kiểm tra link đúng file đang mở → lấy node (selection hoặc `nodeIds`; link tới page → các layer cấp 1; không giới hạn layer) → `normalize` → IR → generator.
 6. **Sandbox → UI → `mcp.mjs`.** UI thu nhỏ ảnh (nếu bật **Optimize images**) rồi gửi lại; `Uint8Array` đi dạng `{ "$bytes": "<base64>" }`.
 7. **`mcp.mjs` → agent.** Server ghi file ra đĩa, lưu output lớn ra `%TEMP%/goapp-figma/`, viết kết quả thành markdown cho agent đọc, kèm ảnh.
 8. **Agent** viết code theo stack của project và gọi tiếp tool khi cần (outline → từng section, screenshot để đối chiếu).
@@ -294,7 +294,6 @@ Server gửi kèm hướng dẫn này cho agent khi kết nối:
 | --- | --- |
 | Plugin is not connected | Cửa sổ plugin chưa mở trong Figma Desktop, hoặc plugin không nối được `localhost:3940` |
 | The link is for … | Link Figma thuộc file khác file đang mở |
-| Selection is too large | Quá 3000 layer: dùng `get_metadata` rồi gọi từng section |
 | Nothing is selected | Không có selection và không truyền `nodeIds` / `url` |
 | Figma did not answer … within 120s | Sandbox xử lý quá lâu hoặc cửa sổ plugin bị đóng giữa chừng |
 

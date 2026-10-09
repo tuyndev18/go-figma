@@ -60,13 +60,29 @@ export interface SelectionSource {
   nodes: { id: string; name: string; width: number; breakpoint?: Breakpoint; state?: string }[];
 }
 
+/** How far a run has got: reading layers from Figma (`done` of `total`), then generating code. */
+export interface RunProgress {
+  phase: "read" | "generate";
+  done: number;
+  total: number;
+}
+
+/** What a finished run took, for the plugin window to show. */
+export interface RunStats {
+  layers: number;
+  /** Milliseconds spent reading the layers and generating the code. */
+  readMs: number;
+  generateMs: number;
+}
+
 /** Messages sent from the plugin sandbox to the UI iframe. */
 export type ToUIMessage =
   | { type: "settings"; settings: Settings }
-  | { type: "loading" }
+  | { type: "loading"; layers?: number }
+  | { type: "progress"; progress: RunProgress }
   | { type: "empty" }
   | { type: "images"; images: PreviewImage[] }
-  | { type: "result"; result: UIResult; source: SelectionSource }
+  | { type: "result"; result: UIResult; source: SelectionSource; stats?: RunStats }
   | { type: "error"; message: string }
   | { type: "project"; name: string; files: ProjectFile[] }
   | { type: "project-failed" }

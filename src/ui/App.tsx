@@ -2,18 +2,19 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BREAKPOINTS, isBreakpoint, type Breakpoint } from "../core/ir";
 import { defaultStateNames, guessBreakpoints, toStateName } from "../core/pageTags";
 import type { HubState } from "../shared/bridge";
-import type { CodeSection, GenerateResult, SelectionSource, ToUIMessage, UIResult } from "../shared/messages";
+import type { CodeSection, GenerateResult, RunStats, SelectionSource, ToUIMessage, UIResult } from "../shared/messages";
 import type { ProjectFile } from "../generators/project";
 import { TARGETS, type Settings, type Target } from "../shared/settings";
 import { connectBridge, type Bridge, type BridgeStatus } from "./bridge";
+import { CodeView } from "./CodeView";
 import { CopyButton, send } from "./common";
-import { elideDataUris } from "./elide";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { highlight } from "./highlight";
 import { ChevronIcon, CopyIcon, ExportIcon, FrameIcon, ImageIcon, SlidersIcon, SparkleIcon, WarningIcon } from "./icons";
 import { McpPanel } from "./McpPanel";
 import { optimizeFiles } from "./optimize";
 import { addImages, imageBytes, usePreviewHtml } from "./images";
+import { containerAt, contentBottom, splitPreview } from "./lazyPreview";
+import { LoadingState, ProgressBar, RunInfo, type Run } from "./RunStatus";
 import { estimateTokens, formatTokens } from "./tokens";
 import { createZip } from "./zip";
 
@@ -33,6 +34,8 @@ export function App() {
   const [hubState, setHubState] = useState<HubState | null>(null);
   const [serverPath, setServerPath] = useState<string | null>(null);
   const [mcpPanel, setMcpPanel] = useState(false);
+  const [run, setRun] = useState<Run | null>(() => ({ startedAt: Date.now() }));
+  const [stats, setStats] = useState<RunStats | null>(null);
   /** Read by the message handler, which is set up once. */
   const settingsRef = useRef<Settings | null>(null);
   settingsRef.current = settings;
@@ -52,10 +55,15 @@ export function App() {
           break;
         case "loading":
           setStatus("loading");
+          setRun({ startedAt: Date.now(), layers: message.layers });
+          break;
+        case "progress":
+          setRun((run) => (run ? { ...run, progress: message.progress } : run));
           break;
         case "empty":
           setStatus("empty");
           setResult(null);
+          setRun(null);
           break;
         case "images":
           addImages(message.images);
@@ -64,11 +72,14 @@ export function App() {
           setStatus("ready");
           setResult(message.result);
           setSource(message.source);
+          setRun(null);
+          setStats(message.stats ?? null);
           setSection((i) => (i < message.result.sections.length ? i : 0));
           break;
         case "error":
           setStatus("error");
           setError(message.message);
+          setRun(null);
           break;
         case "project":
           optimizeFiles(message.files, settingsRef.current?.optimizeImages ?? true)
@@ -146,7 +157,7 @@ export function App() {
           {agentCount > 0 && <span className="pill-count">{agentCount}</span>}
         </button>
       </header>
-      {status === "loading" && result && !mcpPanel && <div className="progress" />}
+      {status === "loading" && result && !mcpPanel && (run ? <ProgressBar run={run} /> : <div className="progress" />)}
 
       {mcpPanel && (
         <ErrorBoundary area="MCP panel" resetKey={hubState}>
@@ -158,7 +169,7 @@ export function App() {
         <EmptyState title="Select a frame" caption="Pick a frame or layer on the canvas and its code shows up here." />
       )}
       {!mcpPanel && status === "error" && <EmptyState title="Couldn't generate code" caption={error} tone="danger" />}
-      {!mcpPanel && status === "loading" && !result && <EmptyState title="Generating…" caption="Reading the layers from Figma." loading />}
+      {!mcpPanel && status === "loading" && !result && run && <LoadingState run={run} />}
 
       {showResult && (
         <>
@@ -185,6 +196,7 @@ export function App() {
               </button>
             </div>
             <TokenCount sections={result.sections} current={view === "code" ? section : null} />
+            <RunInfo run={status === "loading" ? run : null} stats={stats} />
             {view === "code" && current && (
               <CopyButton text={current.code} title="Copy code" className="btn-icon">
                 <CopyIcon />
@@ -286,27 +298,6 @@ function SettingsMenu({ settings, update }: { settings: Settings; update: (patch
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Line numbers are one sticky column beside the code, not a sticky marker per
- * line: thousands of sticky elements each get their own compositing layer, and
- * a long CSS file blanked the plugin window.
- */
-function CodeView({ section }: { section: CodeSection }) {
-  const { html, numbers } = useMemo(() => {
-    const code = elideDataUris(section.code);
-    const lines = code.split("\n").length;
-    return { html: highlight(code, section.language), numbers: Array.from({ length: lines }, (_, i) => i + 1).join("\n") };
-  }, [section]);
-  return (
-    <div className="card code-card">
-      <pre className="gutter" aria-hidden="true">
-        {numbers}
-      </pre>
-      <pre className="code" dangerouslySetInnerHTML={{ __html: html }} />
     </div>
   );
 }
@@ -586,6 +577,78 @@ function Preview({ html, size, state }: { html: string; size: GenerateResult["pr
   const frame = useRef<HTMLIFrameElement>(null);
   const [scale, setScale] = useState(1);
   const [height, setHeight] = useState(size.height);
+  const lazy = useMemo(() => splitPreview(html), [html]);
+  const [appended, setAppended] = useState(0);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  /** Appends batches near the visible part of the preview; set while a document is loading in. */
+  const fillRef = useRef<() => void>(undefined);
+
+  // Infinite scroll: append the next batch while the loaded content ends less
+  // than a screen below the visible part, and the rest a batch at a time in the
+  // background, so the page ends up whole even if nobody scrolls.
+  useEffect(() => {
+    const iframe = frame.current;
+    const scroller = ref.current;
+    setAppended(0);
+    if (!iframe || !scroller || lazy.batches.length === 0) return;
+    let next = 0;
+    let raf = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The new srcdoc loads after this runs; until then the frame still holds the previous document.
+    const stale = iframe.contentDocument;
+    const container = () => {
+      const doc = iframe.contentDocument;
+      return doc && doc !== stale && doc.URL === "about:srcdoc" ? containerAt(doc, lazy.path) : null;
+    };
+    const append = (): boolean => {
+      const el = container();
+      if (!el || next >= lazy.batches.length) return false;
+      el.insertAdjacentHTML("beforeend", lazy.batches[next++]);
+      setAppended(next);
+      return true;
+    };
+    const needed = (el: Element) => {
+      const s = scaleRef.current || 1;
+      const viewBottom = (scroller.getBoundingClientRect().bottom - iframe.getBoundingClientRect().top) / s;
+      return contentBottom(el) < viewBottom + scroller.clientHeight / s;
+    };
+    const fill = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const el = container();
+        if (el && next < lazy.batches.length && needed(el) && append()) fill();
+      });
+    };
+    const background = () => {
+      timer = setTimeout(() => {
+        if (append()) background();
+      }, 80);
+    };
+    let started = false;
+    const start = () => {
+      if (started || !container()) return;
+      started = true;
+      fillRef.current = fill;
+      fill();
+      background();
+    };
+    iframe.addEventListener("load", start);
+    const ready = requestAnimationFrame(() => {
+      if (iframe.contentDocument?.readyState === "complete") start();
+    });
+    scroller.addEventListener("scroll", fill, { passive: true });
+    return () => {
+      cancelAnimationFrame(ready);
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      fillRef.current = undefined;
+      iframe.removeEventListener("load", start);
+      scroller.removeEventListener("scroll", fill);
+    };
+  }, [lazy]);
+  // A narrower panel or another breakpoint can leave a gap below the loaded part.
+  useEffect(() => fillRef.current?.(), [scale, size.width]);
 
   // A page with states shows the one picked; scripts are off in the frame, so set it from here.
   const stateRef = useRef(state);
@@ -652,10 +715,15 @@ function Preview({ html, size, state }: { html: string; size: GenerateResult["pr
           title="Preview"
           sandbox="allow-same-origin"
           scrolling="no"
-          srcDoc={html}
+          srcDoc={lazy.html}
           style={{ width: size.width, height, transform: `scale(${scale})` }}
         />
       </div>
+      {appended < lazy.batches.length && (
+        <div className="preview-more" role="status">
+          Rendering the rest of the page… {Math.round((appended / lazy.batches.length) * 100)}%
+        </div>
+      )}
     </div>
   );
 }

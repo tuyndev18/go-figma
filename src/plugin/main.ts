@@ -6,7 +6,7 @@ import { buildProject } from "../generators/project";
 import type { ToPluginMessage, ToUIMessage } from "../shared/messages";
 import { isTarget, sanitizeSettings, type Settings } from "../shared/settings";
 import { handleBridgeRequest } from "./bridge";
-import { convert, countNodes, loadSettings, MAX_NODES, normalize, saveSettings } from "./convert";
+import { CancelledError, convert, countNodes, loadSettings, normalize, saveSettings } from "./convert";
 
 /** v2: sizes saved before the screen-relative default are dropped once, so the new default shows. */
 const SIZE_KEY = "window-size-v2";
@@ -62,17 +62,24 @@ async function runWithUI() {
     const selection = figma.currentPage.selection;
     if (selection.length === 0) return post({ type: "empty" });
 
-    const count = countNodes(selection);
-    if (count > MAX_NODES) {
-      return post({ type: "error", message: `Selection is too large (${count} layers). Select a smaller frame.` });
-    }
-
     running = true;
-    post({ type: "loading" });
+    const total = countNodes(selection);
+    post({ type: "loading", layers: total });
     try {
       const warnings = new Warnings();
-      const { roots, images } = await normalize(selection, settings, warnings);
+      const started = Date.now();
+      const { roots, images } = await normalize(selection, settings, warnings, {
+        onProgress: (done) => post({ type: "progress", progress: { phase: "read", done: Math.min(done, total), total } }),
+        // A newer selection or edit is waiting: this result would be thrown away anyway.
+        shouldStop: () => rerun,
+      });
+      const read = Date.now();
+      post({ type: "progress", progress: { phase: "generate", done: total, total } });
+      // Let the message out before the generator holds the thread.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (rerun) throw new CancelledError();
       const result = generate(roots, images, settings, warnings);
+      const stats = { layers: total, readMs: read - started, generateMs: Date.now() - read };
       const source = {
         fileName: figma.root.name,
         fileKey: figma.fileKey,
@@ -94,7 +101,7 @@ async function runWithUI() {
           });
           unsent.forEach((i) => sentImages.add(i.hash));
         }
-        post({ type: "result", result: { ...result, images: result.images.map(({ hash, fileName }) => ({ hash, fileName })) }, source });
+        post({ type: "result", result: { ...result, images: result.images.map(({ hash, fileName }) => ({ hash, fileName })) }, source, stats });
       }
     } catch (error) {
       if (!rerun) post({ type: "error", message: error instanceof Error ? error.message : String(error) });

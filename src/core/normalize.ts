@@ -41,17 +41,51 @@ interface Context {
   imageCache: Map<string, ImageAsset>;
   /** Current root's absolute transform without scale; IR coordinates are relative to it. */
   rootFrame: Matrix;
+  progress: Progress;
 }
+
+export interface NormalizeOptions {
+  /** Called now and then with the layers read so far. */
+  onProgress?: (done: number) => void;
+  /** Checked at the same points; true stops the run with a CancelledError. */
+  shouldStop?: () => boolean;
+}
+
+interface Progress extends NormalizeOptions {
+  done: number;
+  lastYield: number;
+  /** Set while the thread is handed back; every branch of the tree waits on it. */
+  pause?: Promise<void>;
+  /** Once a stop is asked for, sibling branches still running stop too. */
+  stopped?: boolean;
+}
+
+/** Thrown when `shouldStop` asks a run to end early. */
+export class CancelledError extends Error {
+  constructor() {
+    super("Cancelled");
+    this.name = "CancelledError";
+  }
+}
+
+/**
+ * The plugin sandbox shares Figma's main thread: a large selection would freeze
+ * the editor until the whole tree is read. Hand the thread back this often, which
+ * also lets progress messages reach the plugin window.
+ */
+const YIELD_EVERY_MS = 40;
 
 const VECTOR_TYPES = new Set<NodeType>(["VECTOR", "STAR", "POLYGON", "BOOLEAN_OPERATION"]);
 const ICON_PART_TYPES = new Set<NodeType>([...VECTOR_TYPES, "ELLIPSE", "LINE", "RECTANGLE", "GROUP", "FRAME", "INSTANCE"]);
 const ICON_MAX_SIZE = 64;
+const CONTAINER_TYPES = new Set<NodeType>(["GROUP", "FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE", "SECTION"]);
 
 export async function normalizeSelection(
   nodes: readonly SceneNode[],
   settings: Settings,
   warnings: Warnings,
   imageCache: Map<string, ImageAsset> = new Map(),
+  options: NormalizeOptions = {},
 ): Promise<{ roots: IRNode[]; images: ImageAsset[] }> {
   const identity: Matrix = [
     [1, 0, 0],
@@ -65,6 +99,7 @@ export async function normalizeSelection(
     loadingImages: new Map(),
     imageCache,
     rootFrame: identity,
+    progress: { ...options, done: 0, lastYield: Date.now() },
   };
   const roots: IRNode[] = [];
   for (const node of nodes) {
@@ -76,7 +111,43 @@ export async function normalizeSelection(
     if (state) converted.forEach((root) => (root.state = state));
     roots.push(...converted);
   }
+  ctx.progress.onProgress?.(ctx.progress.done);
   return { roots, images: [...ctx.images.values()] };
+}
+
+/** Every layer in the given trees, hidden ones included. */
+export function countNodes(nodes: readonly SceneNode[]): number {
+  let count = 0;
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    count++;
+    if ("children" in node) stack.push(...node.children);
+  }
+  return count;
+}
+
+/**
+ * Counts a layer (with its descendants when they won't be visited one by one)
+ * and, once in a while, yields the thread, reports progress and checks for a stop.
+ */
+async function step(node: SceneNode, ctx: Context, withDescendants: boolean): Promise<void> {
+  const progress = ctx.progress;
+  if (progress.stopped) throw new CancelledError();
+  progress.done += withDescendants ? countNodes([node]) : 1;
+  if (!progress.pause && Date.now() - progress.lastYield < YIELD_EVERY_MS) return;
+  // Children convert concurrently: one shared pause parks them all, so the thread is really free.
+  progress.pause ??= new Promise<void>((resolve) =>
+    setTimeout(() => {
+      progress.pause = undefined;
+      progress.lastYield = Date.now();
+      progress.stopped = progress.shouldStop?.() ?? false;
+      if (!progress.stopped) progress.onProgress?.(progress.done);
+      resolve();
+    }, 0),
+  );
+  await progress.pause;
+  if (progress.stopped) throw new CancelledError();
 }
 
 /** Plugin data key holding the breakpoint a frame was assigned in the plugin window. */
@@ -105,18 +176,27 @@ async function convert(
   parentLayout: AutoLayout | null,
   ctx: Context,
 ): Promise<IRNode[]> {
-  if (!node.visible) return [];
+  if (!node.visible) {
+    await step(node, ctx, true);
+    return [];
+  }
   if ("isMask" in node && node.isMask) {
     ctx.warnings.add("Masks are not supported; mask layers were skipped.");
+    await step(node, ctx, true);
     return [];
   }
 
   if (ctx.settings.inlineSvg && (VECTOR_TYPES.has(node.type) || isIcon(node) || isPartialEllipse(node))) {
     const svg = await convertSvg(node, container, parentLayout, ctx);
-    if (svg) return [svg];
+    if (svg) {
+      await step(node, ctx, true);
+      return [svg];
+    }
     // Nothing to export (e.g. clipped out in Dev Mode): fall back to plain layers below.
     ctx.warnings.add("Some vectors could not be exported as SVG and were exported as boxes.");
   }
+  // Containers convert their children one by one, and those count themselves.
+  await step(node, ctx, !CONTAINER_TYPES.has(node.type));
 
   switch (node.type) {
     case "GROUP":

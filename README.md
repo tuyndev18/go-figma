@@ -125,13 +125,13 @@ The plugin window never calls a server. Figma data is read and turned into code 
 
 ### Steps
 
-1. **Trigger.** `selectionchange`, `nodechange` on the current page (only for edits inside the selected layers; temporary layers the plugin creates while exporting are ignored), `currentpagechange`, a settings change or a Pages tag. Runs are debounced by 150ms and never overlap: a change during a run triggers one more run after it, and the stale result is dropped.
-2. **Size check.** The sandbox counts the layers (at most 3000, otherwise an error) and posts `loading`.
-3. **`normalize`**, the only module that reads the Figma API: position from `absoluteTransform`, auto layout, sizing, constraints, fills / strokes / effects, text segments, variables, main components, annotations, vectors exported as `SVG_STRING`, image bytes from `getImageByHash`. Figma may fetch library components and image bytes over its own connection, so those lookups have a timeout (4s for libraries, 15s for images) and are skipped for 60s after a failure, so an offline Figma never hangs a run. Image bytes are cached across runs (the 100 most recent). Output: the **IR**, plain data with no Figma dependency.
-4. **`generate`.** IR → styled tree (`css.ts`) → generator for the selected target. A separate preview is always HTML + CSS, with images pointing at `goapp-figma-image:<hash>` placeholders. Merged pages get one preview size per breakpoint or state.
-5. **Sandbox → UI.** An `images` message carries the bytes of images the window does not have yet (each sent once per session), then `result` carries the code sections, `previewHtml`, preview sizes, warnings and image references, plus `source` (file name, frames, tags) for the Pages bar and **Copy for AI**.
-6. **UI.** Highlights the code, estimates tokens and swaps the placeholders for data URIs (images over 256 KB are downscaled to ≤ 1600px). The previous preview stays on screen until the new one is ready.
-7. **Preview iframe.** `srcdoc` with `sandbox="allow-same-origin"` (scripts disabled), scaled to the window, with a viewport / state switcher for merged pages.
+1. **Trigger.** `selectionchange`, `nodechange` on the current page (only for edits inside the selected layers; temporary layers the plugin creates while exporting are ignored), `currentpagechange`, a settings change or a Pages tag. Runs are debounced by 150ms and never overlap: a change during a run stops it at its next pause and triggers one more run.
+2. **Count.** The sandbox counts the layers (there is no limit) and posts `loading` with the count.
+3. **`normalize`**, the only module that reads the Figma API: position from `absoluteTransform`, auto layout, sizing, constraints, fills / strokes / effects, text segments, variables, main components, annotations, vectors exported as `SVG_STRING`, image bytes from `getImageByHash`. Figma may fetch library components and image bytes over its own connection, so those lookups have a timeout (4s for libraries, 15s for images) and are skipped for 60s after a failure, so an offline Figma never hangs a run. Image bytes are cached across runs (the 100 most recent). Every 40ms it hands the thread back to Figma, so a large frame doesn't freeze the editor, and posts `progress` (layers read of the total). Output: the **IR**, plain data with no Figma dependency.
+4. **`generate`** (posted as the `generate` phase). IR → styled tree (`css.ts`) → generator for the selected target. A separate preview is always HTML + CSS, with images pointing at `goapp-figma-image:<hash>` placeholders. Merged pages get one preview size per breakpoint or state.
+5. **Sandbox → UI.** An `images` message carries the bytes of images the window does not have yet (each sent once per session), then `result` carries the code sections, `previewHtml`, preview sizes, warnings and image references, plus `source` (file name, frames, tags) for the Pages bar and **Copy for AI**, and `stats` (layers, read and generate time) shown in the tab bar.
+6. **UI.** Shows progress and elapsed time while the run is going. Highlights the code (files over 1500 lines only render the lines in view), estimates tokens and swaps the placeholders for data URIs (images over 256 KB are downscaled to ≤ 1600px). The previous preview stays on screen until the new one is ready.
+7. **Preview iframe.** `srcdoc` with `sandbox="allow-same-origin"` (scripts disabled), scaled to the window, with a viewport / state switcher for merged pages. A preview over 2000 elements loads its first sections, then appends the rest as it scrolls toward them and in the background.
 
 ### Other paths
 
@@ -244,7 +244,7 @@ Every element in the reference code carries `data-node-id`, `data-name`, `data-c
 2. **Agent → `mcp.mjs`** over stdio (MCP JSON-RPC). The server turns `url` into node ids + file key; links to several different files are rejected.
 3. **`mcp.mjs` → plugin UI** over WebSocket `ws://localhost:3940/plugin`. A peer process relays the request through the hub. If the plugin is not connected, the hub waits 6s and then fails; every request has a 120s limit. Each call is counted for the MCP panel.
 4. **Plugin UI → sandbox** via `postMessage`. The UI only relays; all Figma API work happens in the sandbox.
-5. **Sandbox** runs the same pipeline as the plugin window (`src/plugin/bridge.ts`): check the link matches the open file → resolve nodes (selection or `nodeIds`; a link to a page → its top-level layers; at most 3000 layers) → `normalize` → IR → generator.
+5. **Sandbox** runs the same pipeline as the plugin window (`src/plugin/bridge.ts`): check the link matches the open file → resolve nodes (selection or `nodeIds`; a link to a page → its top-level layers; no layer limit) → `normalize` → IR → generator.
 6. **Sandbox → UI → `mcp.mjs`.** The UI downscales images (when **Optimize images** is on) and sends the answer back; `Uint8Array`s travel as `{ "$bytes": "<base64>" }`.
 7. **`mcp.mjs` → agent.** The server writes files to disk, saves large output to `%TEMP%/goapp-figma/`, and renders the result as markdown for the agent, with images attached.
 8. **The agent** writes code in the project's stack and calls more tools as needed (outline → section by section, screenshot to compare).
@@ -294,7 +294,6 @@ Use `generate_code` / `export_project` only when you want the plugin's code as-i
 | --- | --- |
 | Plugin is not connected | The plugin window is not open in Figma Desktop, or the plugin cannot reach `localhost:3940` |
 | The link is for … | The Figma link belongs to a different file than the one open |
-| Selection is too large | More than 3000 layers: use `get_metadata`, then call per section |
 | Nothing is selected | No selection and no `nodeIds` / `url` passed |
 | Figma did not answer … within 120s | The sandbox took too long, or the plugin window closed mid-request |
 

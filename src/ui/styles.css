@@ -380,6 +380,59 @@ summary:focus-visible,
   }
 }
 
+/* Known progress: a filled share instead of the sweep. */
+.progress.determinate {
+  background: none;
+  animation: none;
+}
+
+.progress.determinate span,
+.run-track span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.2s ease-out;
+}
+
+.run-track {
+  height: 4px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--hover);
+}
+
+.run-track .indeterminate {
+  width: 40%;
+  animation: run-sweep 1s ease-in-out infinite;
+}
+
+@keyframes run-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.empty-card p.run-caption {
+  font-variant-numeric: tabular-nums;
+}
+
+.run-info {
+  flex-shrink: 0;
+  padding-right: 6px;
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.run-info.live {
+  color: var(--primary);
+}
+
 /* ------------------------------------------------------------------ Settings menu */
 
 .menu-anchor {
@@ -746,6 +799,21 @@ summary:focus-visible,
   border: 0;
   background: #ffffff;
   transform-origin: top left;
+}
+
+/* Pinned to the bottom of the scrolling preview while later sections load in. */
+.preview-more {
+  position: sticky;
+  bottom: 0;
+  width: fit-content;
+  margin: 8px auto 0;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--hairline);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ------------------------------------------------------------------ Empty states */

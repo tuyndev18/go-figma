@@ -71,7 +71,7 @@
     <rect x="548" y="338" width="356" height="112" rx="6" fill="#2c2c2c"/>
     <g font-size="10" fill="#e8e8e8">
       <text x="560" y="356" font-weight="700" fill="#fff">⑥ handleBridgeRequest</text>
-      <text x="560" y="373">checkFile (link matches open file) → resolveNodes (≤ 3000 layers)</text>
+      <text x="560" y="373">checkFile (link matches open file) → resolveNodes (no layer limit)</text>
       <text x="560" y="389">normalize → IR → buildTree (annotate: data-*) → generator</text>
       <text x="560" y="405">designContext: code, components, annotations, assets (images + SVG icons)</text>
       <text x="560" y="421">usedTokens (variable + style) · exportAsync screenshot (≤ 2048px)</text>

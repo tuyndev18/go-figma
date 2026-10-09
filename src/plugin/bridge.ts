@@ -8,7 +8,7 @@ import { buildProject } from "../generators/project";
 import type { BridgeMethods, BridgeRequest, BridgeResponse, ConvertParams, NodeQuery, Screenshot } from "../shared/bridge";
 import { slugMatchesName } from "../shared/figmaUrl";
 import { sanitizeSettings, type Settings } from "../shared/settings";
-import { countNodes, loadSettings, MAX_NODES, normalize } from "./convert";
+import { loadSettings, normalize } from "./convert";
 import { documentXml, metadataXml } from "./metadata";
 import { localVariables, usedTokens } from "./variables";
 
@@ -39,7 +39,7 @@ const handlers: Handlers = {
   async get_metadata({ depth = Infinity, nodeIds, file }) {
     checkFile(file);
     if (!nodeIds?.length && figma.currentPage.selection.length === 0) return { xml: await documentXml() };
-    return { xml: await metadataXml(await resolveNodes({ nodeIds, file }, Infinity), depth) };
+    return { xml: await metadataXml(await resolveNodes({ nodeIds, file }), depth) };
   },
 
   async get_design_context({ format = "react-tailwind", screenshot = true, maxCodeChars, useColorVariables, nodeIds, file }) {
@@ -78,7 +78,7 @@ const handlers: Handlers = {
 
   async get_screenshot({ scale = 1, format = "PNG", ...query }) {
     const screenshots: Screenshot[] = [];
-    for (const node of await resolveNodes(query, Infinity)) screenshots.push(await capture(node, scale, format));
+    for (const node of await resolveNodes(query)) screenshots.push(await capture(node, scale, format));
     return { screenshots };
   },
 
@@ -128,7 +128,7 @@ function checkFile(file: NodeQuery["file"]): void {
   }
 }
 
-async function resolveNodes({ nodeIds, file }: NodeQuery, maxNodes = MAX_NODES): Promise<SceneNode[]> {
+async function resolveNodes({ nodeIds, file }: NodeQuery): Promise<SceneNode[]> {
   checkFile(file);
   let nodes: SceneNode[];
   if (nodeIds && nodeIds.length > 0) {
@@ -149,11 +149,6 @@ async function resolveNodes({ nodeIds, file }: NodeQuery, maxNodes = MAX_NODES):
   } else {
     nodes = [...figma.currentPage.selection];
     if (nodes.length === 0) throw new Error("Nothing is selected in Figma. Select a frame, or pass nodeIds.");
-  }
-
-  const count = countNodes(nodes);
-  if (count > maxNodes) {
-    throw new Error(`Selection is too large (${count} layers, max ${maxNodes}). Use get_metadata and pick smaller sections.`);
   }
   return nodes;
 }

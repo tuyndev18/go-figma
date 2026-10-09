@@ -2,8 +2,11 @@
 // make generated HTML / JSX / CSS easy to scan. Returns HTML for a <pre>.
 import type { CodeSection } from "../shared/messages";
 
-/** Past this size, plain text renders faster than thousands of spans. */
-const MAX_HIGHLIGHT_CHARS = 300_000;
+/**
+ * Long code only renders the lines in view (see CodeView), so the spans cost
+ * little; past this size the highlighting itself would hold up the window.
+ */
+const MAX_HIGHLIGHT_CHARS = 2_000_000;
 
 const MARKUP =
   /(\{\/\*[\s\S]*?\*\/\}|<!--[\s\S]*?-->)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|(<\/?)([A-Za-z][\w.:-]*)|([A-Za-z_@:][\w:.-]*)(?==)|(\/?>)|\b(export|default|function|return|const|let|import|from|true|false|null)\b|([{}])/g;
