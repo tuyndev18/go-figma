@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="660" viewBox="0 0 920 660" font-family="Inter, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#31302e"/>
+    </marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#0075de"/>
+    </marker>
+  </defs>
+  <rect width="920" height="660" rx="14" fill="#f6f5f4"/>
+
+  <!-- lane headers -->
+  <g font-size="12" font-weight="700" text-anchor="middle">
+    <rect x="20" y="20" width="120" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+    <text x="80" y="40" fill="#31302e">User</text>
+    <text x="80" y="55" font-size="9.5" font-weight="400" fill="#a39e98">Figma Desktop</text>
+    <rect x="190" y="20" width="120" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+    <text x="250" y="40" fill="#31302e">AI agent</text>
+    <text x="250" y="55" font-size="9.5" font-weight="400" fill="#a39e98">Claude Code, Codex…</text>
+    <rect x="380" y="20" width="120" height="44" rx="8" fill="rgba(0,117,222,0.08)" stroke="#0075de"/>
+    <text x="440" y="40" fill="#005bab">mcp.mjs</text>
+    <text x="440" y="55" font-size="9.5" font-weight="400" fill="#005bab">Node · hub / peer</text>
+    <rect x="570" y="20" width="120" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+    <text x="630" y="40" fill="#31302e">Plugin UI</text>
+    <text x="630" y="55" font-size="9.5" font-weight="400" fill="#a39e98">iframe · WebSocket</text>
+    <rect x="760" y="20" width="120" height="44" rx="8" fill="#2c2c2c"/>
+    <text x="820" y="40" fill="#fff">Sandbox</text>
+    <text x="820" y="55" font-size="9.5" font-weight="400" fill="#bbb">Figma API</text>
+  </g>
+
+  <!-- lifelines -->
+  <g stroke="#cfcac4" stroke-dasharray="4 4">
+    <line x1="80" y1="64" x2="80" y2="640"/>
+    <line x1="250" y1="64" x2="250" y2="640"/>
+    <line x1="440" y1="64" x2="440" y2="640"/>
+    <line x1="630" y1="64" x2="630" y2="640"/>
+    <line x1="820" y1="64" x2="820" y2="640"/>
+  </g>
+
+  <g font-size="10.5" fill="#31302e">
+    <!-- 1 -->
+    <line x1="80" y1="100" x2="627" y2="100" stroke="#31302e" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="96" y="94">① select frames (tag Responsive / States to merge), click <tspan font-weight="700">Copy for AI</tspan></text>
+    <line x1="630" y1="128" x2="83" y2="128" stroke="#0075de" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#r)"/>
+    <text x="96" y="122" fill="#005bab">prompt to clipboard: file name, node ids + links, breakpoint/state tags, get_design_context call</text>
+
+    <!-- 2 -->
+    <line x1="80" y1="164" x2="247" y2="164" stroke="#31302e" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="96" y="158">② paste prompt</text>
+
+    <!-- 3 -->
+    <line x1="250" y1="200" x2="437" y2="200" stroke="#31302e" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="262" y="194">③ get_design_context</text>
+    <text x="262" y="214" font-size="9.5" fill="#a39e98">stdio · nodeIds/url, format, assetsDir</text>
+
+    <!-- server prep note -->
+    <rect x="300" y="226" width="256" height="40" rx="6" fill="#fff" stroke="#dddddd"/>
+    <text x="312" y="243" font-size="10">Figma link → node id + file key (query)</text>
+    <text x="312" y="258" font-size="10">peer relays via hub · waits 6s for plugin · 120s limit</text>
+
+    <!-- 4 -->
+    <line x1="440" y1="288" x2="627" y2="288" stroke="#31302e" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="452" y="282">④ ws request {id, method, params}</text>
+    <text x="452" y="302" font-size="9.5" fill="#a39e98">ws://localhost:3940/plugin</text>
+
+    <!-- 5 -->
+    <line x1="630" y1="324" x2="817" y2="324" stroke="#31302e" stroke-width="1.4" marker-end="url(#a)"/>
+    <text x="642" y="318">⑤ postMessage bridge-request</text>
+
+    <!-- sandbox work -->
+    <rect x="548" y="338" width="356" height="112" rx="6" fill="#2c2c2c"/>
+    <g font-size="10" fill="#e8e8e8">
+      <text x="560" y="356" font-weight="700" fill="#fff">⑥ handleBridgeRequest</text>
+      <text x="560" y="373">checkFile (link matches open file) → resolveNodes (≤ 3000 layers)</text>
+      <text x="560" y="389">normalize → IR → buildTree (annotate: data-*) → generator</text>
+      <text x="560" y="405">designContext: code, components, annotations, assets (images + SVG icons)</text>
+      <text x="560" y="421">usedTokens (variable + style) · exportAsync screenshot (≤ 2048px)</text>
+      <text x="560" y="437">code &gt; 40k chars → adds get_metadata outline (depth 2)</text>
+    </g>
+
+    <!-- 7 -->
+    <line x1="820" y1="470" x2="633" y2="470" stroke="#0075de" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#r)"/>
+    <text x="642" y="464" fill="#005bab">⑦ bridge-response</text>
+    <text x="642" y="486" font-size="9.5" fill="#a39e98">optimizeFiles: downscale images (if enabled)</text>
+
+    <!-- 8 -->
+    <line x1="630" y1="510" x2="443" y2="510" stroke="#0075de" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#r)"/>
+    <text x="452" y="504" fill="#005bab">⑧ ws response (bytes → base64)</text>
+
+    <!-- server post note -->
+    <rect x="290" y="522" width="300" height="56" rx="6" fill="#fff" stroke="#0075de"/>
+    <text x="302" y="539" font-size="10" font-weight="700" fill="#005bab">⑨ format for the agent</text>
+    <text x="302" y="554" font-size="10">write images/icons to assetsDir · large code → %TEMP%</text>
+    <text x="302" y="569" font-size="10">markdown: code + guide + components + tokens…</text>
+
+    <!-- 10 -->
+    <line x1="440" y1="598" x2="253" y2="598" stroke="#0075de" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#r)"/>
+    <text x="262" y="592" fill="#005bab">⑩ text + screenshot</text>
+
+    <rect x="20" y="608" width="300" height="40" rx="6" fill="#fff" stroke="#dddddd"/>
+    <text x="32" y="625" font-size="10">agent writes code in the project stack, reusing</text>
+    <text x="32" y="640" font-size="10">components/tokens; get_screenshot to compare</text>
+  </g>
+</svg>

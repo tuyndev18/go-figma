@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="300" viewBox="0 0 920 300" font-family="Inter, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#615d59"/>
+    </marker>
+  </defs>
+  <rect width="920" height="300" rx="14" fill="#f6f5f4"/>
+
+  <!-- Figma -->
+  <rect x="24" y="96" width="150" height="96" rx="10" fill="#2c2c2c"/>
+  <text x="99" y="132" font-size="14" font-weight="700" fill="#fff" text-anchor="middle">Figma</text>
+  <text x="99" y="152" font-size="11" fill="#bbb" text-anchor="middle" font-family="Consolas, Menlo, monospace">SceneNode</text>
+  <text x="99" y="172" font-size="10.5" fill="#999" text-anchor="middle">selection</text>
+
+  <!-- normalize -->
+  <line x1="174" y1="144" x2="224" y2="144" stroke="#615d59" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <rect x="226" y="96" width="150" height="96" rx="10" fill="#fff" stroke="#dddddd"/>
+  <text x="301" y="126" font-size="13" font-weight="700" fill="#31302e" text-anchor="middle">normalize.ts</text>
+  <text x="301" y="146" font-size="10.5" fill="#615d59" text-anchor="middle">only module that</text>
+  <text x="301" y="160" font-size="10.5" fill="#615d59" text-anchor="middle">touches Figma API</text>
+  <text x="301" y="178" font-size="10" fill="#a39e98" text-anchor="middle">auto layout · paint · text · SVG</text>
+
+  <!-- IR -->
+  <line x1="376" y1="144" x2="426" y2="144" stroke="#615d59" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <rect x="428" y="96" width="120" height="96" rx="10" fill="rgba(0,117,222,0.08)" stroke="#0075de"/>
+  <text x="488" y="132" font-size="16" font-weight="700" fill="#005bab" text-anchor="middle">IR</text>
+  <text x="488" y="152" font-size="10.5" fill="#005bab" text-anchor="middle">pure data,</text>
+  <text x="488" y="166" font-size="10.5" fill="#005bab" text-anchor="middle">no Figma deps</text>
+
+  <!-- tree / css -->
+  <line x1="548" y1="144" x2="598" y2="144" stroke="#615d59" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <rect x="600" y="96" width="140" height="96" rx="10" fill="#fff" stroke="#dddddd"/>
+  <text x="670" y="126" font-size="13" font-weight="700" fill="#31302e" text-anchor="middle">tree + css.ts</text>
+  <text x="670" y="146" font-size="10.5" fill="#615d59" text-anchor="middle">styled tree:</text>
+  <text x="670" y="160" font-size="10.5" fill="#615d59" text-anchor="middle">CSS declarations</text>
+  <text x="670" y="178" font-size="10" fill="#a39e98" text-anchor="middle">flex · fill/hug · constraints</text>
+
+  <!-- outputs -->
+  <path d="M740 144 C 770 144, 770 52, 796 52" stroke="#615d59" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <path d="M740 144 L 796 144" stroke="#615d59" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <path d="M740 144 C 770 144, 770 236, 796 236" stroke="#615d59" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <rect x="798" y="26" width="104" height="52" rx="8" fill="#fff" stroke="#dddddd"/>
+  <text x="850" y="48" font-size="12" font-weight="700" fill="#31302e" text-anchor="middle">HTML + CSS</text>
+  <text x="850" y="65" font-size="10" fill="#a39e98" text-anchor="middle">htmlCss.ts</text>
+
+  <rect x="798" y="118" width="104" height="52" rx="8" fill="#fff" stroke="#dddddd"/>
+  <text x="850" y="140" font-size="12" font-weight="700" fill="#31302e" text-anchor="middle">React + TW</text>
+  <text x="850" y="157" font-size="10" fill="#a39e98" text-anchor="middle">tailwind.ts · jsx</text>
+
+  <rect x="798" y="210" width="104" height="52" rx="8" fill="#fff" stroke="#dddddd"/>
+  <text x="850" y="232" font-size="12" font-weight="700" fill="#31302e" text-anchor="middle">HTML + TW</text>
+  <text x="850" y="249" font-size="10" fill="#a39e98" text-anchor="middle">tailwind.ts · html</text>
+
+  <!-- merge note -->
+  <rect x="428" y="222" width="312" height="50" rx="8" fill="#fff" stroke="#dddddd" stroke-dasharray="4 3"/>
+  <text x="584" y="242" font-size="11" font-weight="600" fill="#31302e" text-anchor="middle">responsive.ts — merge frames into one page</text>
+  <text x="584" y="259" font-size="10.5" fill="#615d59" text-anchor="middle">breakpoints (@media / md: lg:) or states (data-state)</text>
+  <line x1="584" y1="222" x2="640" y2="194" stroke="#a39e98" stroke-width="1.2" stroke-dasharray="3 3"/>
+
+  <text x="24" y="40" font-size="15" font-weight="700" fill="#31302e">Pipeline</text>
+  <text x="24" y="60" font-size="11.5" fill="#615d59">Runs inside the Figma sandbox — no network.</text>
+</svg>

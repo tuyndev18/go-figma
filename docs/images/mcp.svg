@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="330" viewBox="0 0 920 330" font-family="Inter, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#615d59"/>
+    </marker>
+  </defs>
+  <rect width="920" height="330" rx="14" fill="#f6f5f4"/>
+
+  <!-- Agents -->
+  <text x="28" y="40" font-size="11" font-weight="700" fill="#a39e98" letter-spacing="0.5">AI AGENTS</text>
+  <rect x="28" y="52" width="160" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+  <rect x="40" y="64" width="20" height="20" rx="5" fill="#d97757"/>
+  <text x="70" y="79" font-size="12" font-weight="600" fill="#31302e">Claude Code</text>
+  <rect x="28" y="108" width="160" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+  <rect x="40" y="120" width="20" height="20" rx="5" fill="#31302e"/>
+  <text x="70" y="135" font-size="12" font-weight="600" fill="#31302e">Codex</text>
+  <rect x="28" y="164" width="160" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+  <rect x="40" y="176" width="20" height="20" rx="5" fill="#6e56cf"/>
+  <text x="70" y="191" font-size="12" font-weight="600" fill="#31302e">Cursor · VS Code · …</text>
+
+  <!-- stdio -->
+  <line x1="188" y1="74" x2="250" y2="74" stroke="#615d59" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="188" y1="130" x2="250" y2="130" stroke="#615d59" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="188" y1="186" x2="250" y2="186" stroke="#615d59" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="219" y="66" font-size="9.5" fill="#a39e98" text-anchor="middle">stdio</text>
+
+  <!-- mcp processes -->
+  <rect x="252" y="52" width="150" height="44" rx="8" fill="rgba(0,117,222,0.08)" stroke="#0075de"/>
+  <text x="327" y="71" font-size="11.5" font-weight="700" fill="#005bab" text-anchor="middle">mcp.mjs · hub</text>
+  <text x="327" y="86" font-size="9.5" fill="#005bab" text-anchor="middle">holds port 3940</text>
+  <rect x="252" y="108" width="150" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+  <text x="327" y="127" font-size="11.5" font-weight="600" fill="#31302e" text-anchor="middle">mcp.mjs · peer</text>
+  <text x="327" y="142" font-size="9.5" fill="#a39e98" text-anchor="middle">relays via hub</text>
+  <rect x="252" y="164" width="150" height="44" rx="8" fill="#fff" stroke="#dddddd"/>
+  <text x="327" y="183" font-size="11.5" font-weight="600" fill="#31302e" text-anchor="middle">mcp.mjs · peer</text>
+  <text x="327" y="198" font-size="9.5" fill="#a39e98" text-anchor="middle">takes over if hub exits</text>
+  <path d="M402 130 C 420 130, 420 80, 404 76" stroke="#a39e98" stroke-width="1.2" fill="none" stroke-dasharray="3 3" marker-end="url(#arrow)"/>
+  <path d="M402 186 C 432 186, 432 84, 404 80" stroke="#a39e98" stroke-width="1.2" fill="none" stroke-dasharray="3 3" marker-end="url(#arrow)"/>
+
+  <!-- ws -->
+  <line x1="440" y1="74" x2="534" y2="74" stroke="#615d59" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="487" y="64" font-size="9.5" fill="#a39e98" text-anchor="middle" font-family="Consolas, Menlo, monospace">ws://localhost:3940</text>
+
+  <!-- plugin -->
+  <rect x="536" y="40" width="170" height="168" rx="10" fill="#fff" stroke="#dddddd"/>
+  <path d="M536 50a10 10 0 0 1 10-10h150a10 10 0 0 1 10 10v12H536z" fill="#2c2c2c"/>
+  <text x="548" y="56" font-size="9.5" fill="#fff" font-weight="600">GoApp Figma plugin</text>
+  <text x="621" y="88" font-size="11.5" font-weight="700" fill="#31302e" text-anchor="middle">Plugin UI (iframe)</text>
+  <text x="621" y="104" font-size="9.5" fill="#615d59" text-anchor="middle">bridge.ts · MCP panel</text>
+  <line x1="621" y1="114" x2="621" y2="140" stroke="#615d59" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="628" y="131" font-size="9" fill="#a39e98">postMessage</text>
+  <rect x="552" y="144" width="138" height="52" rx="6" fill="#f6f5f4" stroke="#e6e6e6"/>
+  <text x="621" y="164" font-size="11" font-weight="700" fill="#31302e" text-anchor="middle">Sandbox</text>
+  <text x="621" y="180" font-size="9.5" fill="#615d59" text-anchor="middle">normalize + generators</text>
+
+  <!-- tools -->
+  <rect x="730" y="40" width="166" height="168" rx="10" fill="#fff" stroke="#dddddd"/>
+  <text x="746" y="62" font-size="10.5" font-weight="700" fill="#a39e98" letter-spacing="0.5">TOOLS</text>
+  <g font-family="Consolas, Menlo, monospace" font-size="10.5" fill="#31302e">
+    <text x="746" y="84">get_design_context</text>
+    <text x="746" y="104">get_metadata</text>
+    <text x="746" y="124">get_screenshot</text>
+    <text x="746" y="144">get_variable_defs</text>
+    <text x="746" y="164">generate_code</text>
+    <text x="746" y="184">export_project</text>
+  </g>
+
+  <!-- notes -->
+  <text x="28" y="252" font-size="11.5" fill="#615d59"><tspan font-weight="600" fill="#31302e">One plugin, many agents:</tspan> the first process holds the port as hub; later ones relay through it.</text>
+  <text x="28" y="274" font-size="11.5" fill="#615d59"><tspan font-weight="600" fill="#31302e">Local only:</tspan> listens on 127.0.0.1 / ::1 and rejects connections carrying a web page Origin.</text>
+  <text x="28" y="296" font-size="11.5" fill="#615d59"><tspan font-weight="600" fill="#31302e">Design context, not final code:</tspan> data-* attributes point the agent at existing components and tokens.</text>
+</svg>

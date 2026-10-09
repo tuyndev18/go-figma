@@ -1,115 +1,162 @@
 # GoApp Figma – Design to Code
 
-Plugin Figma chuyển layer đang chọn thành **HTML + CSS**, **React + Tailwind (v4)** hoặc **HTML + Tailwind**.
-Chạy được ở cả Design mode (cửa sổ plugin có preview) và Dev Mode (panel Code gốc của Figma).
-Plugin không gọi mạng, mọi xử lý đều diễn ra trong sandbox của Figma.
+**English** · [Tiếng Việt](README.vi.md)
 
-## Chạy thử
+A Figma plugin that turns the selected layers into **HTML + CSS**, **React + Tailwind (v4)** or **HTML + Tailwind**, plus an **MCP server** that lets Claude Code, Codex, Cursor… read the design and write code that fits your codebase.
+
+![GoApp Figma: select a frame, the code updates live](docs/images/overview.png)
+
+- Works in both **Design mode** (plugin window with a live preview) and **Dev Mode** (Figma's native Code panel).
+- **Export a runnable project**: a static site or a Next.js App Router app, images included.
+- **Merge several frames into one page**: by breakpoint (Responsive) or by state (States).
+- **MCP for AI agents**: click **Copy for AI** → paste into your agent → it reads the design over MCP and implements it.
+- No network calls: everything runs inside Figma's sandbox (except Google Fonts for the preview and the MCP connection to `localhost`).
+
+## Contents
+
+- [Installation](#installation)
+- [Usage](#usage)
+- [Export project](#export-project)
+- [Merging frames into one page](#merging-frames-into-one-page)
+- [MCP for AI agents](#mcp-for-ai-agents-claude-code-codex-cursor)
+- [Data flow: Figma → AI](#data-flow-figma--ai)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Current limitations](#current-limitations)
+
+## Installation
 
 ```bash
+git clone https://github.com/tuyndev18/go-figma.git
+cd go-figma
 npm install
-npm run build        # hoặc: npm run dev (watch)
+npm run build        # or: npm run dev (watch)
 ```
 
-Trong Figma Desktop: **Plugins → Development → Import plugin from manifest…** → chọn `manifest.json`.
+In Figma Desktop: **Plugins → Development → Import plugin from manifest…** → pick `manifest.json`.
 
-- Design mode: chạy plugin, chọn một frame, code sẽ tự cập nhật khi đổi selection hoặc sửa layer.
-- Dev Mode: mở panel Code, chọn ngôn ngữ "HTML + CSS" / "React + Tailwind" / "HTML + Tailwind".
+`npm run build` produces `dist/code.js` (sandbox), `dist/ui.html` (plugin window) and `dist/mcp.mjs` (MCP server).
+
+## Usage
+
+### Design mode
+
+Run the plugin and select a frame. The code updates whenever the selection or the layers change.
+
+| Area | What it does |
+| --- | --- |
+| Stack picker (top left) | HTML + CSS / React + Tailwind / HTML + Tailwind |
+| ⚙ Code options | Code generation options, **Optimize images** |
+| `MCP · n` | MCP server status and number of connected agents; click to open the management panel |
+| Code tabs / **Preview** | View each generated file, or a live preview in an iframe |
+| `≈ … tokens` | Estimated token count of the code (how much of an agent's context the selection takes) |
+| Copy · Images · Export | Copy the code, download images as a zip, export the whole project |
+| **Copy for AI** | Copy a prompt that has an agent read the selection over MCP |
+
+![Preview tab](docs/images/preview.png)
+
+### Dev Mode
+
+Open the **Code** panel and pick "HTML + CSS" / "React + Tailwind" / "HTML + Tailwind".
+
+![Dev Mode – Code panel](docs/images/dev-mode.png)
 
 ## Export project
 
-Nút **Export** trên thanh tab tải về `<tên-frame>.zip`. Mỗi frame đang chọn thành một page, frame đầu tiên là trang chủ.
+The **Export** button on the tab bar downloads `<frame-name>.zip`. Each selected frame becomes a page; the first frame is the home page.
 
 | Target | Project |
 | --- | --- |
-| HTML + CSS | Site tĩnh: `index.html`, `<frame>.html`, `styles.css` dùng chung, `images/` |
-| HTML + Tailwind | Site tĩnh dùng `@tailwindcss/browser@4` (CDN), `images/` |
+| HTML + CSS | Static site: `index.html`, `<frame>.html`, a shared `styles.css`, `images/` |
+| HTML + Tailwind | Static site using `@tailwindcss/browser@4` (CDN), `images/` |
 | React + Tailwind | Next.js App Router: `app/page.jsx`, `app/<frame>/page.jsx`, Tailwind v4, `public/images/` |
 
-Tên page/route lấy từ tên layer, bỏ dấu tiếng Việt ("Lời mời thi đấu" → `loi-moi-thi-dau`).
+Page and route names come from layer names, with Vietnamese diacritics stripped and converted to kebab-case.
 
-## Gộp nhiều frame thành 1 page
+## Merging frames into one page
 
-Khi chọn nhiều frame, thanh **Pages** có 3 chế độ:
+With several frames selected, the **Pages** bar offers three modes:
 
-| Chế độ | Kết quả |
+| Mode | Result |
 | --- | --- |
-| **Separate** | Mỗi frame là một page riêng (mặc định). |
-| **Responsive** | Một page, mỗi frame là một breakpoint (Mobile / Tablet / Desktop). |
-| **States** | Một page, mỗi frame là một trạng thái: trạng thái UI (empty / loading / error, đã login…) hoặc các bước của một flow (step-1, step-2…). |
+| **Separate** | Each frame is its own page (default). |
+| **Responsive** | One page; each frame is a breakpoint (Mobile / Tablet / Desktop). |
+| **States** | One page; each frame is a UI state or a step of a flow. |
 
-Khi chọn chế độ, plugin tự gán tag cho từng frame: breakpoint đoán theo tên frame, nếu không có thì theo chiều rộng; tên state lấy phần khác nhau giữa các tên frame. Sau đó có thể sửa từng chip. Frame để trống (None) vẫn là page riêng. Tag được lưu vào frame (plugin data), nên lần sau mở lại và MCP server đều đọc được.
+Picking a mode tags every frame automatically: breakpoints are guessed from the frame name, falling back to its width; state names come from the part that differs between frame names. Each chip can then be adjusted. A frame left at None stays its own page. Tags are stored on the frame (plugin data), so they survive reopening and the MCP server reads them too.
 
-Cả hai chế độ gộp đều ghép layer giữa các frame theo cùng một cách (xem bên dưới). Muốn markup gọn thì đặt tên layer giống nhau ở mọi frame.
+Both merge modes match layers across frames by **tag + layer name** (text and icons also compare content). A layer present in only some frames is hidden (`display: none`) in the others. For clean markup, give layers the same name in every frame; differently named layers still render correctly but duplicate DOM, and the plugin warns about it.
 
-### Responsive (1 page – nhiều breakpoint)
+Only one mode applies per merge; breakpoints × states cannot be combined.
 
-Chọn các frame của cùng một màn (vd. `Mobile Shipping`, `Tablet Shipping`, `Desktop Shipping`), chọn **Responsive** rồi kiểm tra Mobile / Tablet / Desktop của mỗi frame.
+### Responsive (one page – several breakpoints)
 
-Các frame đã gán sẽ gộp thành **một** page, viết theo kiểu mobile-first:
+Select frames of the same screen at different sizes, choose **Responsive**, then check the Mobile / Tablet / Desktop tag of each frame.
 
-- Frame nhỏ nhất làm style gốc. Frame lớn hơn chỉ thêm phần khác biệt: `@media (min-width: 768px | 1024px)`, hoặc `md:` / `lg:` với Tailwind.
-- Layer được ghép giữa các frame theo tag + **tên layer** (text/icon so thêm nội dung). Layer chỉ có ở một số frame sẽ bị ẩn (`display: none`) ở các frame còn lại.
-- Con của flex bị đổi thứ tự giữa các frame sẽ được thêm `order`.
-- Root của page có `width: 100%`, chiều cao frame chuyển thành `min-height`.
-- Preview có nút chuyển viewport theo từng breakpoint.
+![Pages = Responsive](docs/images/responsive.png)
 
-Muốn markup gọn thì đặt tên layer giống nhau ở mọi frame. Layer tên khác nhau vẫn ra đúng giao diện nhưng bị lặp DOM, và plugin sẽ cảnh báo.
+The frames merge into **one** mobile-first page:
 
-### States (1 page – nhiều trạng thái)
+- The smallest frame provides the base styles. Larger frames only add what differs: `@media (min-width: 768px | 1024px)`, or `md:` / `lg:` with Tailwind.
+- Flex children that change order between frames get `order`.
+- The page root gets `width: 100%`; the frame height becomes `min-height`.
+- The preview has a viewport switcher per breakpoint.
 
-Chọn các frame là các trạng thái của cùng một màn (vd. `Login Default`, `Login Error`, hoặc `Checkout Step 1`, `Checkout Step 2`), chọn **States** rồi sửa tên state nếu cần. Frame có state đầu tiên (theo thứ tự chọn) là trạng thái **default**.
+### States (one page – several states)
 
-- State default làm style gốc. Mỗi state khác chỉ override phần khác so với default, không so với state trước nó. Root của page có `data-state="<state>"`.
-- HTML + CSS: `.login[data-state="error"] .alert { … }`.
-- Tailwind: root có class `group`, con dùng `group-data-[state=error]:…`, root dùng `data-[state=error]:…`.
-- React: component nhận prop `state` (mặc định là state default). Trong Next.js export, page đọc `?state=…` từ URL.
-- Site tĩnh export: có một script nhỏ đọc `?state=…`, ví dụ `index.html?state=error`.
-- Layer chỉ có ở một số state sẽ bị ẩn (`display: none`) ở các state còn lại. Frame giữ nguyên kích thước, không chuyển thành `width: 100%` như Responsive.
-- Preview có nút chuyển giữa các state.
+Select frames that are states of the same screen, choose **States**, then rename the states if needed. The first frame with a state (in selection order) is the **default** state.
 
-Chỉ một trong hai chế độ được dùng cho một lần gộp, không kết hợp breakpoint × state.
+![Pages = States](docs/images/states.png)
 
-## MCP cho AI agent (Claude Code, Codex, Cursor…)
+- The default state provides the base styles. Every other state overrides only what differs from the default, never from the previous state. The page root carries `data-state="<state>"`.
+- HTML + CSS: `.<root>[data-state="<state>"] .<class> { … }`.
+- Tailwind: the root gets the `group` class; children use `group-data-[state=<state>]:…`, the root uses `data-[state=<state>]:…`.
+- React: the component takes a `state` prop (defaulting to the default state). In the Next.js export, the page reads `?state=<state>` from the URL.
+- Static site export: a small script reads `?state=<state>` from the URL.
+- Frames keep their size; unlike Responsive, they are not turned into `width: 100%`.
+- The preview has a state switcher.
 
-`npm run build` sinh thêm `dist/mcp.mjs`: MCP server (stdio) tự chứa, không cần `node_modules` khi chạy.
-Agent gọi tool → server → WebSocket `localhost:3940` → cửa sổ plugin → sandbox chạy đúng pipeline của plugin.
+## MCP for AI agents (Claude Code, Codex, Cursor…)
 
-```
-AI agent ──stdio──▶ dist/mcp.mjs ──ws://localhost:3940──▶ plugin UI ──postMessage──▶ sandbox (normalize + generators)
-```
+`dist/mcp.mjs` is a self-contained MCP server (stdio) that needs no `node_modules` at runtime. Agent calls a tool → server → WebSocket `localhost:3940` → plugin window → sandbox runs the plugin's own pipeline.
 
-Đăng ký server (đổi đường dẫn cho đúng máy):
+![MCP topology: agent → mcp.mjs → plugin](docs/images/mcp.svg)
+
+### Registering the server
+
+The quickest way is the **MCP** panel inside the plugin (see below). Or register it from the command line (replace `<repo>` with the absolute path to this project):
 
 ```bash
 # Claude Code
-claude mcp add goapp-figma -- node C:/Users/tuyen/OneDrive/Desktop/go-figma/dist/mcp.mjs
+claude mcp add goapp-figma -- node <repo>/dist/mcp.mjs
 # Codex
-codex mcp add goapp-figma -- node C:/Users/tuyen/OneDrive/Desktop/go-figma/dist/mcp.mjs
+codex mcp add goapp-figma -- node <repo>/dist/mcp.mjs
 ```
 
-Hoặc cấu hình tay: Codex `~/.codex/config.toml`
+Manual config – Codex `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.goapp-figma]
 command = "node"
-args = ["C:/Users/tuyen/OneDrive/Desktop/go-figma/dist/mcp.mjs"]
+args = ["<repo>/dist/mcp.mjs"]
 ```
 
-Cursor / Claude Desktop / client khác dùng JSON: `{ "mcpServers": { "goapp-figma": { "command": "node", "args": ["…/dist/mcp.mjs"] } } }`.
+Cursor / Claude Desktop / other clients use JSON: `{ "mcpServers": { "goapp-figma": { "command": "node", "args": ["<repo>/dist/mcp.mjs"] } } }`.
 
-Sau đó mở plugin trong Figma Desktop (Design mode hoặc Dev Mode inspect) và **giữ cửa sổ plugin mở**; chấm **MCP** trên toolbar xanh là đã nối.
+Then open the plugin in Figma Desktop (Design mode or Dev Mode inspect) and **keep the plugin window open**; a green **MCP** dot on the toolbar means it is connected.
 
-### Quản lý agent ngay trong plugin
+### Managing agents from the plugin
 
-Bấm nút **MCP** trên toolbar để mở panel quản lý:
+Click **MCP** on the toolbar to open the management panel.
 
-- **Connected agents**: các phiên agent đang dùng GoApp Figma (Claude Code, Codex, Cursor…), thư mục project, số lần gọi tool và tool gọi gần nhất. Số trên nút `MCP · 2` là số phiên đang nối. Chấm vàng = server đang chạy nhưng chưa agent nào dùng.
-- **Agents**: thêm / gỡ / cập nhật entry `goapp-figma` trong config MCP cấp user của từng agent, không cần gõ lệnh:
+![MCP panel](docs/images/mcp-panel.png)
 
-| Agent | File config |
+- **Connected agents**: agent sessions using GoApp Figma, their project folder, number of tool calls and the latest tool called. The number on `MCP · n` is the count of connected sessions. A yellow dot means the server is running but no agent uses it yet.
+- **Agents**: add / remove / update the `goapp-figma` entry in each agent's user-level MCP config, without typing commands:
+
+| Agent | Config file |
 | --- | --- |
-| Claude Code | `~/.claude.json` (`mcpServers`, scope user) |
+| Claude Code | `~/.claude.json` (`mcpServers`, user scope) |
 | Codex | `~/.codex/config.toml` (`[mcp_servers.goapp-figma]`) |
 | Cursor | `~/.cursor/mcp.json` |
 | Claude Desktop | `%APPDATA%/Claude/claude_desktop_config.json` |
@@ -117,83 +164,153 @@ Bấm nút **MCP** trên toolbar để mở panel quản lý:
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Gemini CLI | `~/.gemini/settings.json` |
 
-  Chỉ entry `goapp-figma` bị đụng tới; file cũ được sao lưu thành `<file>.goapp-figma.bak`. "Other path" nghĩa là entry đang trỏ tới bản `mcp.mjs` khác, bấm **Update** để trỏ về bản này. File JSONC có comment (thường là VS Code) không được ghi đè để khỏi mất comment, khi đó dùng **Copy** và dán tay. Sau khi đổi, khởi động lại agent (panel ghi cách cho từng agent).
+Only the `goapp-figma` entry is touched; the previous file is backed up as `<file>.goapp-figma.bak`. "Other path" means the entry points to a different `mcp.mjs`; click **Update** to point it at this one. JSONC files with comments (usually VS Code) are not rewritten, so the comments survive; use **Copy** and paste by hand instead. After a change, restart the agent (the panel says how for each one).
 
-Plugin không đọc được file trên máy, nên việc này do process MCP server làm. Chưa có agent nào chạy server thì chạy riêng hub để panel có chỗ nối:
+The plugin cannot read files on disk, so the MCP server process does this. If no agent is running the server yet, start a standalone hub for the panel to connect to:
 
 ```bash
-npm run hub        # = node dist/mcp.mjs --hub, Ctrl+C để dừng
+npm run hub        # = node dist/mcp.mjs --hub, Ctrl+C to stop
 ```
 
-Hub riêng này không phục vụ agent nào; agent mở sau sẽ nối qua nó, và nếu một agent đang giữ port thì hub chờ để tiếp quản khi agent đó thoát.
+This standalone hub serves no agent itself; agents started later connect through it, and if an agent already holds the port, the hub waits to take over when that agent exits.
 
-Tool theo mô hình MCP chính thức của Figma: không đưa code thành phẩm mà đưa **ngữ cảnh để AI hiểu ý design** rồi tự viết theo codebase.
+### Tools
 
-| Tool | Việc |
+Modeled on Figma's official MCP server: instead of finished code, the tools return **context for the AI to understand the design's intent** and write code that fits the codebase.
+
+| Tool | Purpose |
 | --- | --- |
-| `get_metadata` | Outline XML thưa (id, tên, type, x/y/w/h, auto layout, component, text), không style. Rẻ, dùng để định hướng frame lớn và chọn section. Không chọn gì → danh sách page + layer cấp 1 |
-| `get_design_context` | **Tool chính.** Code tham chiếu (mặc định React + Tailwind) gắn `data-node-id`, `data-name`, `data-component`, `data-props`, `data-annotation`; danh sách component (variant, mô tả, link docs), token đang dùng, annotation, file ảnh/icon đã ghi ra đĩa (`assetsDir`), screenshot và chỉ dẫn cách chuyển sang stack của project. Code > 40k ký tự → trả outline để agent làm từng section |
-| `get_variable_defs` | `scope: "selection"`: variable/style đang dùng (giá trị theo mode của layer). `scope: "file"`: mọi variable local + khối CSS `:root` |
-| `get_screenshot` | Ảnh PNG/JPG để nhìn/đối chiếu (cạnh dài ≤ 2048px) |
-| `generate_code` | Code thuần y như nút Copy (không gợi ý); `imagesDir` ghi ảnh |
-| `export_project` | Ghi cả project chạy được ra `outputDir` (không ghi đè nếu không có `overwrite: true`) |
+| `get_metadata` | Sparse XML outline (id, name, type, x/y/w/h, auto layout, component, text), no styling. Cheap; used to orient in large frames and pick sections. Nothing selected → pages + top-level layers |
+| `get_design_context` | **Main tool.** Reference code (React + Tailwind by default) tagged with `data-node-id`, `data-name`, `data-component`, `data-props`, `data-annotation`; components used (variants, description, docs links), tokens in use, annotations, image/icon files written to disk (`assetsDir`), a screenshot and instructions for adapting it to the project's stack. Code > 40k chars → returns an outline so the agent works section by section |
+| `get_variable_defs` | `scope: "selection"`: variables/styles in use (values in the layer's mode). `scope: "file"`: every local variable + a CSS `:root` block |
+| `get_screenshot` | PNG/JPG image to look at or compare against (longest side ≤ 2048px) |
+| `generate_code` | Plain code exactly like the Copy button (no hints); `imagesDir` writes images |
+| `export_project` | Writes a whole runnable project to `outputDir` (never overwrites without `overwrite: true`) |
 
-Mọi tool nhận `nodeIds` (`"12:34"`), hoặc `url` là link Figma (`…/design/<key>/<tên>?node-id=12-34`, cả link branch/proto). Bỏ trống = selection hiện tại. Link phải thuộc file đang mở trong Figma; khác file thì tool báo lỗi thay vì đọc nhầm layer trùng id. Output quá lớn được ghi ra `%TEMP%/goapp-figma/` và trả đường dẫn.
+Every tool takes `nodeIds` (layer ids), or `url`, a Figma link (`…/design/<key>/<name>?node-id=<id>`, branch/proto links included). Empty = current selection. The link must belong to the file open in Figma; for another file the tool fails instead of reading a layer that happens to share the id. Oversized output is written to `%TEMP%/goapp-figma/` and the path is returned.
 
-**Cách dùng chính:** chọn frame → bấm **Copy for AI** (nút xanh trong plugin) → dán vào Claude Code / Codex. Prompt đã có tên file, id layer (kèm link nếu plugin đọc được file key) và bảo agent gọi `get_design_context` rồi làm theo chỉ dẫn. Cũng có thể dán thẳng link Figma vào chat, hoặc dùng prompt `implement_design` (Claude Code: `/mcp__goapp-figma__implement_design`).
+### Typical use
 
-Ví dụ phần tử trong code tham chiếu:
+1. Select frames in Figma.
+2. Click **Copy for AI** (the blue button in the plugin).
+3. Paste into Claude Code / Codex. The prompt already contains the file name, layer ids (with links when the plugin can read the file key) and tells the agent to call `get_design_context` and follow its instructions.
 
-```jsx
-<div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[color:var(--primary,#3b82f6)]"
-     data-node-id="1:5" data-name="Button" data-component="Button" data-props="Variant=Primary, Disabled=false">
-```
+You can also paste a Figma link straight into the chat, or use the `implement_design` prompt (Claude Code: `/mcp__goapp-figma__implement_design`).
 
-Agent đọc `data-component` để dùng `<Button variant="primary">` có sẵn trong codebase thay vì dựng lại div.
+Every element in the reference code carries `data-node-id`, `data-name`, `data-component`, `data-props`: the agent reads `data-component` / `data-props` to use the matching component already in the codebase instead of rebuilding it from raw tags.
 
-Ghi chú:
+### Notes
 
-- Nhiều agent chạy cùng lúc dùng chung một plugin: process đầu giữ port làm hub, các process sau chuyển request qua hub; hub thoát thì process khác tự tiếp quản.
-- Sau khi `npm run build`, process đầu tiên chạy bản mới (agent mới mở, `/mcp` reconnect, hoặc `npm run hub`) sẽ được hub bản cũ nhường port; các process cũ chuyển thành peer, plugin tự nối lại sau ~1.5s. Không cần khởi động lại mọi agent. Các bản build trước tính năng này không biết nhường, nên lần đầu phải tắt chúng.
-- Server chỉ nghe `127.0.0.1`/`::1`, từ chối kết nối có `Origin` của trang web, nên trang web không đọc được design.
-- Kết nối nằm trong `devAllowedDomains` của manifest: chạy được khi import plugin dạng development, không chạy ở bản publish.
-- Dev Mode panel Code (codegen) không có cửa sổ nên không nối MCP được.
+- Several agents can share one plugin: the first process holds the port as the hub, later processes relay requests through it; when the hub exits, another process takes over.
+- After `npm run build`, the first process running the new build (a new agent, an `/mcp` reconnect, or `npm run hub`) is handed the port by the old hub; old processes become peers and the plugin reconnects after ~1.5s. No need to restart every agent.
+- The server listens on `127.0.0.1`/`::1` only and rejects connections carrying a web page `Origin`, so websites cannot read the design.
+- The connection is listed in the manifest's `devAllowedDomains`: it works when the plugin is imported for development, not in a published build.
+- Dev Mode's Code panel (codegen) has no window, so it cannot connect to MCP.
 
-## Kiến trúc
+## Data flow: Figma → AI
 
-```
-SceneNode ──normalize──▶ IR ──tree──▶ styled tree (CSS decls) ──┬─ htmlCss  → class + CSS rules
- (Figma API)            (thuần)        css.ts = luật layout      └─ tailwind → CSS decl → class v4
-```
+![Data flow from Figma to an AI agent](docs/images/flow.svg)
 
-| File | Vai trò |
+### Steps
+
+1. **Plugin → clipboard.** **Copy for AI** builds a prompt with the file name, each frame (node id, a link when the file key is readable, breakpoint/state tag) and a `get_design_context` call with `nodeIds`, the `format` of the selected stack, and `assetsDir` set to the project's assets folder. For merged frames the prompt says whether it is a responsive page (md = 768px, lg = 1024px) or a page with states (and which one is the default).
+2. **Agent → `mcp.mjs`** over stdio (MCP JSON-RPC). The server turns `url` into node ids + file key; links to several different files are rejected.
+3. **`mcp.mjs` → plugin UI** over WebSocket `ws://localhost:3940/plugin`. A peer process relays the request through the hub. If the plugin is not connected, the hub waits 6s and then fails; every request has a 120s limit. Each call is counted for the MCP panel.
+4. **Plugin UI → sandbox** via `postMessage`. The UI only relays; all Figma API work happens in the sandbox.
+5. **Sandbox** runs the same pipeline as the plugin window (`src/plugin/bridge.ts`): check the link matches the open file → resolve nodes (selection or `nodeIds`; a link to a page → its top-level layers; at most 3000 layers) → `normalize` → IR → generator.
+6. **Sandbox → UI → `mcp.mjs`.** The UI downscales images (when **Optimize images** is on) and sends the answer back; `Uint8Array`s travel as `{ "$bytes": "<base64>" }`.
+7. **`mcp.mjs` → agent.** The server writes files to disk, saves large output to `%TEMP%/goapp-figma/`, and renders the result as markdown for the agent, with images attached.
+8. **The agent** writes code in the project's stack and calls more tools as needed (outline → section by section, screenshot to compare).
+
+### What the agent gets from `get_design_context`
+
+| Part | Content |
 | --- | --- |
-| `src/core/normalize.ts` | Module **duy nhất** gọi Figma API: vị trí qua `absoluteTransform`, auto layout, sizing, paint, text segment, variable, SVG export |
-| `src/core/ir.ts` | Kiểu IR, không phụ thuộc Figma |
-| `src/generators/css.ts` | Luật Figma → CSS (flex, fill/hug, stroke → border/outline, effect...) |
-| `src/generators/tailwind.ts` | Dịch khai báo CSS → class Tailwind; không có utility thì fallback `[prop:value]` |
-| `src/generators/htmlCss.ts` | Đặt tên class từ tên layer, gộp shorthand |
-| `src/core/markup.ts` | AST + printer HTML/JSX (escape, SVG → JSX) |
+| Reference code | Code in the requested `format` (React + Tailwind by default). Every element has `data-node-id`, `data-name`; component instances have `data-component`, `data-props`; designer notes become `data-annotation`; colors bound to variables become `var(--token, fallback)` |
+| How to use this | Instructions for the agent: this is reference code, convert it to the project's stack, priority of the hints, drop `data-*` from the final code, never redraw icons |
+| Components | Component name, instance count, variants in use, a few node ids, description + docs links, whether it comes from a team library |
+| Design tokens | Variables (`--cssName`, value per mode, collection) and color / text / effect styles |
+| Annotations | Designers' Dev Mode notes |
+| Assets | Images and SVG icons written to `assetsDir`: path used in the code → file on disk |
+| Conversion warnings | What the plugin could not convert (masks, blend modes…) |
+| Screenshot | A PNG of each node |
+
+When the code exceeds 40k characters it is not returned inline: the agent gets an XML outline (depth 2) to split by, and the full code is saved to a file.
+
+### Tool chain per tool
+
+Shared path: `nodeIds` / `url` → `query()` → `hub.request()` → WebSocket → plugin UI → sandbox `handleBridgeRequest()` → the tool's handler.
+
+| Tool | In the sandbox (Figma) | In `mcp.mjs` (Node) | Agent receives |
+| --- | --- | --- | --- |
+| `get_metadata` | No selection and no `nodeIds` → `documentXml()` (pages + top-level layers). Otherwise `resolveNodes()` (no layer limit) → `metadataXml(depth)` | > 60k chars → written to a file | XML outline or a file path |
+| `get_design_context` | `resolveNodes()` → `normalize()` (color variables always on, icons as SVG) → `designContext()` → `usedTokens()` → PNG screenshot; over 40k chars → adds `metadataXml(2)` | Writes assets to `assetsDir` (default `%TEMP%/goapp-figma/assets`), saves the code if too large, `designContextText()` | Markdown + images |
+| `get_screenshot` | `resolveNodes()` → `exportAsync()` (scale 0.1–4, PNG/JPG, longest side ≤ 2048px) | Converts to base64 | Name + id + image per node |
+| `get_variable_defs` | `selection`: `usedTokens()`; `file`: `localVariables()` | `file`: JSON + CSS `:root` block (> 60k → file) | Token list |
+| `generate_code` | Plugin settings + parameters → `normalize()` → `generate()` (same as the Copy button) | > 60k chars → one file per section; with `imagesDir` → writes images | Code, image list, warnings |
+| `export_project` | `normalize()` → `buildProject()` | `writeFiles(outputDir)`: refuses to write outside `outputDir`, never overwrites without `overwrite: true` | List of written files |
+
+### Recommended call order
+
+The server sends these instructions to the agent on connect:
+
+1. Large frame or whole page: call `get_metadata` for a cheap outline and pick sections.
+2. Call `get_design_context` per section, with `assetsDir` set to the project's assets folder.
+3. Convert the reference code to the project's stack, reusing existing components and tokens.
+4. Call `get_screenshot` to compare the result.
+
+Use `generate_code` / `export_project` only when you want the plugin's code as-is.
+
+### Common errors
+
+| Error | Cause |
+| --- | --- |
+| Plugin is not connected | The plugin window is not open in Figma Desktop, or the plugin cannot reach `localhost:3940` |
+| The link is for … | The Figma link belongs to a different file than the one open |
+| Selection is too large | More than 3000 layers: use `get_metadata`, then call per section |
+| Nothing is selected | No selection and no `nodeIds` / `url` passed |
+| Figma did not answer … within 120s | The sandbox took too long, or the plugin window closed mid-request |
+
+## Architecture
+
+![Pipeline: SceneNode → normalize → IR → styled tree → generators](docs/images/pipeline.svg)
+
+| File | Role |
+| --- | --- |
+| `src/core/normalize.ts` | The **only** module that calls the Figma API: position via `absoluteTransform`, auto layout, sizing, constraints, paints, text segments, variables, SVG export |
+| `src/core/ir.ts` | IR types, no Figma dependency |
+| `src/core/pageTags.ts` | Guesses breakpoints / state names for merged frames |
+| `src/generators/css.ts` | Figma → CSS rules (flex, fill/hug, constraints, stroke → border/outline, effects…) |
+| `src/generators/responsive.ts` | Merges several frames into one page (breakpoints or states) |
+| `src/generators/tailwind.ts` | Translates CSS declarations → Tailwind classes; falls back to `[prop:value]` when no utility exists |
+| `src/generators/htmlCss.ts` | Class names from layer names, shorthand merging |
+| `src/generators/project.ts` | Builds the exported project (static site / Next.js) |
+| `src/generators/designContext.ts` | Reference code for AI: `data-*` attributes, icons → asset files, collects components/annotations |
+| `src/core/markup.ts` | HTML/JSX AST + printer (escaping, SVG → JSX) |
 | `src/plugin/main.ts` | Sandbox: UI mode + codegen mode |
-| `src/plugin/bridge.ts` | Sandbox: xử lý request từ MCP (`metadata.ts` outline XML, `variables.ts` token) |
-| `src/generators/designContext.ts` | Code tham chiếu cho AI: thuộc tính `data-*`, icon → file asset, gom component/annotation |
-| `src/shared/bridge.ts` | Protocol MCP ⇄ plugin (method, params, kết quả) |
-| `src/ui/` | UI React (chọn target, code, preview iframe, cảnh báo); `bridge.ts` giữ WebSocket tới MCP; `McpPanel.tsx` panel quản lý agent |
-| `mcp/` | MCP server Node: `server.ts` định nghĩa tool, `hub.ts` WebSocket hub/peer + danh sách phiên agent, `agents.ts` vị trí config từng agent, `agentConfig.ts` sửa entry `goapp-figma` trong JSON/TOML |
+| `src/plugin/bridge.ts` | Sandbox: handles MCP requests (`metadata.ts` XML outline, `variables.ts` tokens) |
+| `src/shared/bridge.ts` | MCP ⇄ plugin protocol (methods, params, results) |
+| `src/ui/` | React UI (target picker, code, preview iframe, warnings, token estimate); `bridge.ts` holds the WebSocket to MCP; `McpPanel.tsx` is the agent management panel |
+| `mcp/` | Node MCP server: `server.ts` defines the tools, `hub.ts` the WebSocket hub/peer + agent sessions, `agents.ts` each agent's config location, `agentConfig.ts` edits the `goapp-figma` entry in JSON/TOML |
 
-Thêm framework mới: viết một generator nhận `StyledElement[]` (hoặc đọc thẳng IR), không cần đụng vào `normalize`.
+Adding a framework: write a generator that takes `StyledElement[]` (or reads the IR directly); `normalize` stays untouched.
 
-## Test
+## Development
 
 ```bash
-npm test          # vitest, test generator bằng IR giả, không cần Figma
-npm run typecheck
+npm run dev         # build + watch
+npm test            # vitest, tests generators with fake IR, no Figma needed
+npm run typecheck   # plugin + MCP server
 ```
 
-## Giới hạn hiện tại
+## Current limitations
 
-- Image fill: code luôn tham chiếu file `images/<file>` (không nhúng base64); nút tải ảnh trên thanh tab tải zip. Chế độ CROP xuất thành `cover`, chưa áp opacity/filter của ảnh.
-- **Optimize images** (bật mặc định, trong menu ⚙): mỗi file ảnh được thu về 2× kích thước lớn nhất mà design hiển thị nó (không phóng to), nén lại cùng định dạng nên tên file và code không đổi. Áp dụng cho tải ảnh, Export và file ảnh agent nhận qua MCP (`get_design_context`, `generate_code`, `export_project`). Ví dụ ảnh gốc 12 MB hiển thị ~480px → ~95 KB. Tắt đi để giữ ảnh gốc.
-- Mask, blend mode chưa hỗ trợ (sẽ hiện cảnh báo).
-- Grid auto layout và frame không có auto layout → con được định vị `absolute`.
-- Tailwind output nhắm v4 (thang spacing động, `outline-solid`, ...).
+- Image fills: code always references `images/<file>` (no base64 inlining); the images button on the tab bar downloads a zip. CROP mode exports as `cover`; image opacity/filters are not applied yet.
+- **Optimize images** (on by default, in the ⚙ menu): each image file is scaled to 2× the largest size the design shows it at (never upscaled) and recompressed in the same format, so file names and code stay the same. Applies to image downloads, Export, and image files agents receive over MCP (`get_design_context`, `generate_code`, `export_project`). Turn it off to keep the originals.
+- Masks and blend modes are not supported yet (a warning is shown).
+- Grid auto layout and frames without auto layout → children are positioned `absolute` (following the layer's constraints).
+- Tailwind output targets v4 (dynamic spacing scale, `outline-solid`, …).
+
+## License
+
+MIT
