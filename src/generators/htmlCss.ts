@@ -14,11 +14,14 @@ export function generateHtmlCss(tree: StyledElement[]): { html: string; css: str
   const rules: string[] = [];
   /** min-width → rules; printed after the base rules so they win the cascade. */
   const media = new Map<number, string[]>();
+  /** State → rules, scoped to the page root's `data-state`; more specific than the base rules. */
+  const states = new Map<string, string[]>();
 
-  const convert = (node: StyledChild): Child => {
+  /** `scope`: class of the enclosing page root with states. */
+  const convert = (node: StyledChild, scope: string | null): Child => {
     if (node.kind !== "element") return node.kind === "text" ? { kind: "text", text: node.text } : node;
     const attrs: [string, string][] = [];
-    if (node.style.length > 0 || node.responsive) {
+    if (node.style.length > 0 || node.responsive || node.states || node.stateNames) {
       const className = namer.name(node.name, node.role);
       attrs.push(["class", className]);
       if (node.style.length > 0) rules.push(printRule(`.${className}`, node.style));
@@ -26,15 +29,31 @@ export function generateHtmlCss(tree: StyledElement[]): { html: string; css: str
         if (!media.has(minWidth)) media.set(minWidth, []);
         media.get(minWidth)!.push(printRule(`.${className}`, style));
       }
+      if (node.stateNames) {
+        scope = className;
+        attrs.push(["data-state", node.stateNames[0]]);
+        node.stateNames.forEach((s) => states.set(s, states.get(s) ?? []));
+      }
+      for (const { state, style } of node.states ?? []) {
+        const root = `.${scope}[data-state="${state}"]`;
+        states.get(state)?.push(printRule(scope === className ? root : `${root} .${className}`, style));
+      }
     }
-    return el(node.tag, [...attrs, ...(node.attrs ?? [])], node.children.map(convert));
+    return el(
+      node.tag,
+      [...attrs, ...(node.attrs ?? [])],
+      node.children.map((child) => convert(child, scope)),
+    );
   };
 
-  const pages = tree.map((root) => print([convert(root)], "html"));
+  const pages = tree.map((root) => print([convert(root, null)], "html"));
   const mediaBlocks = [...media]
     .sort(([a], [b]) => a - b)
     .map(([minWidth, rs]) => `@media (min-width: ${minWidth}px) {\n${indent(rs.join("\n\n"))}\n}`);
-  return { html: pages.join("\n"), css: [BASE_CSS, ...rules, ...mediaBlocks].join("\n\n"), pages };
+  const stateBlocks = [...states]
+    .filter(([, rs]) => rs.length > 0)
+    .map(([state, rs]) => [`/* State: ${state} */`, ...rs].join("\n\n"));
+  return { html: pages.join("\n"), css: [BASE_CSS, ...rules, ...mediaBlocks, ...stateBlocks].join("\n\n"), pages };
 }
 
 const indent = (text: string) =>

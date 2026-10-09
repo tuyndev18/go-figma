@@ -7,9 +7,12 @@ export interface Element {
   kind: "element";
   tag: string;
   /** Use HTML attribute names ("class"); the JSX printer renames them. */
-  attrs: [name: string, value: string][];
+  attrs: [name: string, value: AttrValue][];
   children: Child[];
 }
+
+/** A plain value, or a JSX expression (`{state}`) with the value HTML prints instead. */
+export type AttrValue = string | { jsx: string; html: string };
 
 export type Child = Element | { kind: "text"; text: string } | { kind: "raw"; markup: string };
 
@@ -78,9 +81,11 @@ function printInline(node: Child, dialect: Dialect): string {
   return node.markup;
 }
 
-function printAttr(name: string, value: string, dialect: Dialect): string {
-  if (dialect === "html") return `${name}="${escapeHtml(value).replace(/"/g, "&quot;")}"`;
+function printAttr(name: string, attr: AttrValue, dialect: Dialect): string {
   const jsxName = JSX_ATTR_NAMES[name] ?? name;
+  if (typeof attr !== "string" && dialect === "jsx") return `${jsxName}={${attr.jsx}}`;
+  const value = typeof attr === "string" ? attr : attr.html;
+  if (dialect === "html") return `${name}="${escapeHtml(value).replace(/"/g, "&quot;")}"`;
   // JSX string attributes can't escape quotes; fall back to an expression.
   return value.includes('"') ? `${jsxName}={${JSON.stringify(value)}}` : `${jsxName}="${value}"`;
 }

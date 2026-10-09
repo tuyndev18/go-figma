@@ -151,12 +151,17 @@ export function isBreakpoint(value: unknown): value is Breakpoint {
   return BREAKPOINTS.some((b) => b.name === value);
 }
 
+/** Figma's MIN / MAX / CENTER / STRETCH / SCALE constraint on one axis. */
+export type Constraint = "start" | "end" | "center" | "stretch" | "scale";
+
 interface BaseNode {
   id: string;
   /** Layer name from Figma, used to derive class / component names. */
   name: string;
   /** Only on selection roots: the breakpoint the user assigned to this frame. */
   breakpoint?: Breakpoint;
+  /** Only on selection roots: the page state this frame shows ("loading", "step-2"); tagged frames merge into one page. */
+  state?: string;
   component?: ComponentRef;
   /** Dev Mode annotations left by designers. */
   annotations?: string[];
@@ -164,6 +169,8 @@ interface BaseNode {
   sizing: { horizontal: Sizing; vertical: Sizing };
   /** "absolute" when the parent has no auto layout or the child opts out of it. */
   positioning: "flow" | "absolute";
+  /** Absolute layers only: which parent edges the layer is pinned to (Figma constraints). Missing = top-left. */
+  constraints?: { horizontal: Constraint; vertical: Constraint };
   /** Extra offset of a flow child, for spacing that a single gap/alignment can't express. */
   margin?: { top: number; left: number };
   minWidth?: number;

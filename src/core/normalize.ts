@@ -4,6 +4,7 @@ import { boxFromTransform, invert, multiply, scaleOf, withoutScale, type Matrix 
 import { sniffImageSize, sniffImageType } from "./image";
 import { isBreakpoint } from "./ir";
 import { toKebab } from "./naming";
+import { toStateName } from "./pageTags";
 import { remote } from "./remote";
 import type {
   AutoLayout,
@@ -70,7 +71,9 @@ export async function normalizeSelection(
     ctx.rootFrame = withoutScale(node.absoluteTransform);
     const converted = await convert(node, null, null, ctx);
     const breakpoint = readBreakpoint(node);
+    const state = breakpoint ? undefined : readState(node);
     if (breakpoint) converted.forEach((root) => (root.breakpoint = breakpoint));
+    if (state) converted.forEach((root) => (root.state = state));
     roots.push(...converted);
   }
   return { roots, images: [...ctx.images.values()] };
@@ -82,6 +85,13 @@ export const BREAKPOINT_KEY = "breakpoint";
 export function readBreakpoint(node: BaseNode): Breakpoint | undefined {
   const value = node.getPluginData(BREAKPOINT_KEY);
   return isBreakpoint(value) ? value : undefined;
+}
+
+/** Plugin data key holding the page state a frame was assigned in the plugin window. */
+export const STATE_KEY = "state";
+
+export function readState(node: BaseNode): string | undefined {
+  return toStateName(node.getPluginData(STATE_KEY)) || undefined;
 }
 
 /**
@@ -102,7 +112,10 @@ async function convert(
   }
 
   if (ctx.settings.inlineSvg && (VECTOR_TYPES.has(node.type) || isIcon(node) || isPartialEllipse(node))) {
-    return [await convertSvg(node, container, parentLayout, ctx)];
+    const svg = await convertSvg(node, container, parentLayout, ctx);
+    if (svg) return [svg];
+    // Nothing to export (e.g. clipped out in Dev Mode): fall back to plain layers below.
+    ctx.warnings.add("Some vectors could not be exported as SVG and were exported as boxes.");
   }
 
   switch (node.type) {
@@ -132,7 +145,7 @@ async function convert(
     case "STAR":
     case "POLYGON":
     case "BOOLEAN_OPERATION":
-      ctx.warnings.add("Vector layers are exported as boxes; enable inline SVG for real shapes.");
+      if (!ctx.settings.inlineSvg) ctx.warnings.add("Vector layers are exported as boxes; enable inline SVG for real shapes.");
       return [{ ...(await base(node, container, parentLayout, ctx)), kind: "shape" }];
     default:
       ctx.warnings.add(`${node.type} layers are not supported and were skipped.`);
@@ -301,8 +314,9 @@ async function convertSvg(
   container: SceneNode | null,
   parentLayout: AutoLayout | null,
   ctx: Context,
-): Promise<IRNode> {
-  const [ir, svg] = await Promise.all([base(node, container, parentLayout, ctx), node.exportAsync({ format: "SVG_STRING" })]);
+): Promise<IRNode | null> {
+  const [ir, svg] = await Promise.all([base(node, container, parentLayout, ctx), exportSvg(node)]);
+  if (svg === null) return null;
   // The export is axis-aligned and may grow to fit strokes/effects: keep the
   // node's center and use the SVG's own size, with rotation baked in.
   const width = Number(svg.match(/<svg[^>]*\swidth="([\d.]+)"/)?.[1] ?? node.width);
@@ -316,6 +330,43 @@ async function convertSvg(
     box: { x: cx - width / 2, y: cy - height / 2, width, height, rotation: 0 },
     sizing: { horizontal: "fixed", vertical: "fixed" },
   };
+}
+
+/** Ids of temporary layers created by exportSvg, so edit watchers can ignore them. */
+export const scratchNodeIds = new Set<string>();
+
+/**
+ * Figma exports only what is visible on the canvas, so a layer clipped out by
+ * an ancestor (e.g. a carousel item past the frame's edge) fails to export.
+ * Retry on a detached copy, then (Dev Mode is read-only, so no copies there)
+ * with absolute bounds. Null when nothing can be exported.
+ */
+async function exportSvg(node: SceneNode): Promise<string | null> {
+  try {
+    return await node.exportAsync({ format: "SVG_STRING" });
+  } catch {
+    // Clipped out or empty; try the fallbacks below.
+  }
+
+  let copy: SceneNode | undefined;
+  try {
+    copy = node.clone();
+    scratchNodeIds.add(copy.id);
+    figma.currentPage.appendChild(copy);
+    copy.x = -1e6;
+    copy.y = -1e6;
+    return await copy.exportAsync({ format: "SVG_STRING" });
+  } catch {
+    // Read-only document, or the copy has nothing visible either.
+  } finally {
+    if (copy && !copy.removed) copy.remove();
+  }
+
+  try {
+    return await node.exportAsync({ format: "SVG_STRING", useAbsoluteBounds: true });
+  } catch {
+    return null;
+  }
 }
 
 function isIcon(node: SceneNode): boolean {
@@ -388,10 +439,27 @@ async function base(
     if (typeof value === "number") ir[key] = value * s;
   }
 
+  const pinned = positioning === "absolute" ? constraints(node, container) : null;
+  if (pinned) ir.constraints = pinned;
+
   if (component) ir.component = component;
   const notes = annotations(node);
   if (notes.length > 0) ir.annotations = notes;
   return ir;
+}
+
+const CONSTRAINT = { MIN: "start", MAX: "end", CENTER: "center", STRETCH: "stretch", SCALE: "scale" } as const;
+
+/**
+ * Figma constraints of an absolute layer, when they differ from top-left and
+ * apply to the IR parent. Constraints of layers inside a flattened group refer
+ * to the group, and rotated layers' boxes aren't their bounds, so both stay pinned top-left.
+ */
+function constraints(node: SceneNode, container: SceneNode | null): IRNode["constraints"] | null {
+  if (!container || node.parent !== container || !("constraints" in node) || node.rotation !== 0) return null;
+  const horizontal = CONSTRAINT[node.constraints.horizontal];
+  const vertical = CONSTRAINT[node.constraints.vertical];
+  return horizontal === "start" && vertical === "start" ? null : { horizontal, vertical };
 }
 
 /**

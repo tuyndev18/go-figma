@@ -467,10 +467,22 @@ summary:focus-visible,
 
 .breakpoints {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 12px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--hairline);
+}
+
+.page-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-mode .segmented button {
+  height: 22px;
+  font-size: 11px;
 }
 
 .breakpoint-chips {
@@ -515,6 +527,29 @@ summary:focus-visible,
   cursor: pointer;
 }
 
+.state-input {
+  height: 20px;
+  min-width: 0;
+  max-width: 120px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  color: var(--ink-2);
+  font: 600 11px var(--font);
+}
+
+.state-input:focus {
+  outline: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.state-default {
+  padding-right: 6px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
 /* ------------------------------------------------------------------ Tabs */
 
 .tabbar {
@@ -548,6 +583,20 @@ summary:focus-visible,
   border-bottom-color: var(--primary);
   color: var(--ink);
   font-weight: 600;
+}
+
+/* Takes the spacer's place; on a narrow window it shrinks first. */
+.token-count {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 6px;
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tabbar .btn-primary {

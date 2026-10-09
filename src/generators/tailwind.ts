@@ -1,19 +1,28 @@
 // CSS declarations → Tailwind v4 classes. Anything without a utility falls back
 // to an arbitrary property (`[prop:value]`), so output is always faithful.
 import { fmt } from "../core/color";
-import { el, print, type Child, type Dialect } from "../core/markup";
+import { el, print, type Child, type Dialect, type Element } from "../core/markup";
 import { toPascal } from "../core/naming";
 import type { Decl } from "./css";
 import type { StyledChild, StyledElement } from "./tree";
 
-export function generateTailwind(tree: StyledElement[], dialect: Dialect): string {
+/**
+ * A page with states takes its state from a `state` prop, or in a Next.js page
+ * (`stateFrom: "searchParams"`) from `?state=…`.
+ */
+export function generateTailwind(tree: StyledElement[], dialect: Dialect, { stateFrom = "props" }: { stateFrom?: "props" | "searchParams" } = {}): string {
   const convert = (node: StyledChild): Child => {
     if (node.kind !== "element") return node.kind === "text" ? { kind: "text", text: node.text } : node;
+    // The page root with states is the `group` its descendants' `group-data-[state=…]:` refer to.
+    const stateVariant = node.stateNames ? "data" : "group-data";
     const classes = [
+      ...(node.stateNames ? ["group"] : []),
       ...toTailwind(node.style),
       ...(node.responsive ?? []).flatMap((r) => toTailwind(r.style).map((c) => `${r.prefix}:${c}`)),
+      ...(node.states ?? []).flatMap((s) => toTailwind(s.style).map((c) => `${stateVariant}-[state=${s.state}]:${c}`)),
     ];
-    const attrs: [string, string][] = classes.length > 0 ? [["class", classes.join(" ")]] : [];
+    const attrs: Element["attrs"] = classes.length > 0 ? [["class", classes.join(" ")]] : [];
+    if (node.stateNames) attrs.push(["data-state", { jsx: "state", html: node.stateNames[0] }]);
     return el(node.tag, [...attrs, ...(node.attrs ?? [])], node.children.map(convert));
   };
 
@@ -22,7 +31,16 @@ export function generateTailwind(tree: StyledElement[], dialect: Dialect): strin
 
   const body = children.length === 1 ? print(children, "jsx", 2) : `    <>\n${print(children, "jsx", 3)}\n    </>`;
   const name = toPascal(tree[0]?.name ?? "Component");
-  return `export default function ${name}() {\n  return (\n${body}\n  );\n}`;
+  const states = tree.find((root) => root.stateNames)?.stateNames;
+  if (!states) return `export default function ${name}() {\n  return (\n${body}\n  );\n}`;
+
+  const initial = JSON.stringify(states[0]);
+  const values = states.map((s) => JSON.stringify(s)).join(" | ");
+  const head =
+    stateFrom === "searchParams"
+      ? `// Open with ?state=${states.join(" | ?state=")}\nexport default async function ${name}({ searchParams }) {\n  const { state = ${initial} } = await searchParams;\n`
+      : `/** @param {{ state?: ${values} }} props */\nexport default function ${name}({ state = ${initial} }) {\n`;
+  return `${head}  return (\n${body}\n  );\n}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,8 +201,13 @@ export function toTailwind(decls: Decl[]): string[] {
         add(`gap-x-${spacing(value)}`);
         continue;
       case "left":
+      case "right":
       case "top":
+      case "bottom":
         add(value === "auto" ? `${prop}-auto` : signed(prop, value));
+        continue;
+      case "z-index":
+        add(`z-${value}`);
         continue;
       case "order":
         add(`order-${value}`);

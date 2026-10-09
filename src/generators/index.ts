@@ -46,7 +46,7 @@ export function generate(
       break;
   }
 
-  const previewSizes = responsivePreviews(roots);
+  const previewSizes = mergedPreviews(roots);
   const fits = imageFits(roots, images);
   return {
     sections,
@@ -62,15 +62,19 @@ export function generate(
   };
 }
 
-/** One preview per tagged frame of a responsive page, at a width inside that frame's breakpoint. */
-function responsivePreviews(roots: IRNode[]): PreviewSize[] | undefined {
+/**
+ * One preview per tagged frame of a merged page: a responsive page at a width
+ * inside each frame's breakpoint, a page with states in each state.
+ */
+function mergedPreviews(roots: IRNode[]): PreviewSize[] | undefined {
   const groups = pageGroups(roots);
-  const responsive = groups.find((g) => g.length > 1);
-  if (!responsive) return undefined;
-  return responsive.map((screen) => ({
-    label: breakpointLabel(screen.breakpoint!),
-    width: previewWidth(screen),
-    height: groups.reduce((sum, g) => sum + (g === responsive ? screen.box.height : g[0].box.height), 0),
+  const merged = groups.find((g) => g.length > 1);
+  if (!merged) return undefined;
+  return merged.map((screen) => ({
+    ...(screen.breakpoint
+      ? { label: breakpointLabel(screen.breakpoint), width: previewWidth(screen) }
+      : { label: screen.state!, width: Math.round(screen.box.width), state: screen.state }),
+    height: groups.reduce((sum, g) => sum + (g === merged ? screen.box.height : g[0].box.height), 0),
   }));
 }
 

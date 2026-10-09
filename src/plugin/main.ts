@@ -1,4 +1,5 @@
-import { BREAKPOINT_KEY, readBreakpoint } from "../core/normalize";
+import { BREAKPOINT_KEY, readBreakpoint, readState, scratchNodeIds, STATE_KEY } from "../core/normalize";
+import { toStateName } from "../core/pageTags";
 import { Warnings } from "../core/warnings";
 import { generate } from "../generators";
 import { buildProject } from "../generators/project";
@@ -75,7 +76,13 @@ async function runWithUI() {
       const source = {
         fileName: figma.root.name,
         fileKey: figma.fileKey,
-        nodes: selection.map((n) => ({ id: n.id, name: n.name, breakpoint: readBreakpoint(n) })),
+        nodes: selection.map((n) => ({
+          id: n.id,
+          name: n.name,
+          width: Math.round(n.width),
+          breakpoint: readBreakpoint(n),
+          state: readBreakpoint(n) ? undefined : readState(n),
+        })),
       };
       if (!rerun) {
         // Images can be many megabytes; the window keeps each one it has been sent.
@@ -110,6 +117,8 @@ async function runWithUI() {
     const selected = new Set(figma.currentPage.selection.map((n) => n.id));
     if (selected.size === 0) return;
     const relevant = event.nodeChanges.some(({ node }) => {
+      // Copies made (and removed) while exporting must not trigger another run.
+      if (scratchNodeIds.has(node.id)) return false;
       // A deleted layer has no parent left to check.
       if (node.removed) return true;
       for (let n: BaseNode | null = node; n; n = n.parent) if (selected.has(n.id)) return true;
@@ -152,10 +161,14 @@ async function runWithUI() {
         post({ type: "settings", settings });
         run();
         break;
-      case "set-breakpoint": {
+      case "tag-frames": {
         // Stored on the frame itself, so the tag survives reloads and the MCP server sees it too.
-        const node = await figma.getNodeByIdAsync(message.nodeId);
-        if (node && node.type !== "DOCUMENT" && node.type !== "PAGE") node.setPluginData(BREAKPOINT_KEY, message.breakpoint ?? "");
+        for (const tag of message.tags) {
+          const node = await figma.getNodeByIdAsync(tag.nodeId);
+          if (!node || node.type === "DOCUMENT" || node.type === "PAGE") continue;
+          node.setPluginData(BREAKPOINT_KEY, tag.breakpoint ?? "");
+          node.setPluginData(STATE_KEY, tag.breakpoint || !tag.state ? "" : toStateName(tag.state));
+        }
         run();
         break;
       }

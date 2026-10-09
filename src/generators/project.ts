@@ -1,5 +1,6 @@
 // Packages a selection as a runnable project, one page per selected frame
-// (frames tagged with breakpoints share one responsive page):
+// (frames tagged with breakpoints share one responsive page, frames tagged with
+// states one page that switches state with `?state=…`):
 //   html-css       → static site: index.html, <page>.html, styles.css, images/
 //   html-tailwind  → static site using the Tailwind browser build
 //   react-tailwind → Next.js App Router: app/page.jsx, app/<page>/page.jsx, public/images/
@@ -31,7 +32,7 @@ export interface Project {
 }
 
 interface Page {
-  /** One frame, or the breakpoint frames of a responsive page. */
+  /** One frame, or the tagged frames of a merged page. */
   roots: IRNode[];
   title: string;
   /** URL segment; "" for the home page. */
@@ -55,6 +56,16 @@ export function buildProject(roots: IRNode[], images: ImageAsset[], target: Targ
   const fits = imageFits(roots, images);
   files.push(...images.map((i) => ({ path: `${imageRoot}/${i.fileName}`, bytes: i.bytes, fit: fits.get(i.hash) })));
   return { name, files };
+}
+
+/** States of a page with states, the default first. */
+const pageStates = (page: Page) => (page.roots.length > 1 && !page.roots[0].breakpoint ? page.roots.map((r) => r.state!) : []);
+
+/** README note: "states: default, `index.html?state=loading`". */
+function statesNote(page: Page, url: string): string {
+  const states = pageStates(page);
+  if (states.length === 0) return "";
+  return ` — states: ${states.map((s, i) => (i === 0 ? s : `\`${url}?state=${s}\``)).join(", ")}`;
 }
 
 function assignPages(groups: IRNode[][]): Page[] {
@@ -92,7 +103,7 @@ function staticSite(
     pages.forEach((page, i) => {
       files.push({
         path: htmlFile(page),
-        text: htmlDocument(page.title, [googleFontLinks(page.roots), '<link rel="stylesheet" href="styles.css">'], bodies[i]),
+        text: htmlDocument(page.title, [googleFontLinks(page.roots), '<link rel="stylesheet" href="styles.css">'], withStateScript(page, bodies[i])),
       });
     });
     files.push({ path: "styles.css", text: `${css}\n\nbody {\n  margin: 0;\n}\n` });
@@ -103,7 +114,7 @@ function staticSite(
         text: htmlDocument(
           page.title,
           [googleFontLinks(page.roots), '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>'],
-          generateTailwind([tree[i]], "html"),
+          withStateScript(page, generateTailwind([tree[i]], "html")),
         ),
       });
     });
@@ -120,11 +131,20 @@ function staticSite(
       "",
       "Pages:",
       "",
-      ...pages.map((p) => `- \`${htmlFile(p)}\` — ${p.title}`),
+      ...pages.map((p) => `- \`${htmlFile(p)}\` — ${p.title}${statesNote(p, htmlFile(p))}`),
     ]),
   });
   return files;
 }
+
+/** Static pages have no framework to pass a state in, so `?state=…` sets it. */
+const STATE_SCRIPT = `<script>
+  // Show another state with ?state=<name>.
+  const state = new URLSearchParams(location.search).get("state");
+  if (state) document.querySelector("[data-state]").dataset.state = state;
+</script>`;
+
+const withStateScript = (page: Page, body: string) => (pageStates(page).length > 0 ? `${body}\n${STATE_SCRIPT}` : body);
 
 function htmlDocument(title: string, head: string[], body: string): string {
   const headLines = head
@@ -168,7 +188,7 @@ function nextApp(name: string, pages: Page[], imageUrl: (hash: string) => string
   );
   const files: ProjectFile[] = pages.map((page, i) => ({
     path: page.slug === "" ? "app/page.jsx" : `app/${page.slug}/page.jsx`,
-    text: `${generateTailwind([tree[i]], "jsx")}\n`,
+    text: `${generateTailwind([tree[i]], "jsx", { stateFrom: "searchParams" })}\n`,
   }));
 
   const fontHead = googleFontUrls(pages.flatMap((p) => p.roots))
@@ -219,7 +239,7 @@ export default function RootLayout({ children }) {
         "",
         "Routes:",
         "",
-        ...pages.map((p) => `- \`/${p.slug}\` — ${p.title} (\`app/${p.slug ? `${p.slug}/` : ""}page.jsx\`)`),
+        ...pages.map((p) => `- \`/${p.slug}\` — ${p.title} (\`app/${p.slug ? `${p.slug}/` : ""}page.jsx\`)${statesNote(p, `/${p.slug}`)}`),
         "",
         "Fonts are loaded from Google Fonts in `app/layout.jsx`; fonts Google doesn't host fall back to a generic family.",
       ]),

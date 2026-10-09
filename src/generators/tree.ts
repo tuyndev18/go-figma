@@ -2,7 +2,7 @@
 // declarations; the HTML+CSS and Tailwind generators decide how to attach them.
 import type { FrameNode, IRNode, TextNode } from "../core/ir";
 import { commonDecls, nodeStyle, segmentStyle, withoutDecls, type Decl, type StyleContext } from "./css";
-import { mergeScreens, pageGroups, pageName } from "./responsive";
+import { mergeScreens, mergeStates, pageGroups, pageName } from "./responsive";
 
 export interface StyledElement {
   kind: "element";
@@ -14,6 +14,10 @@ export interface StyledElement {
   style: Decl[];
   /** Overrides from larger breakpoints, smallest first (responsive pages only). */
   responsive?: ResponsiveStyle[];
+  /** Overrides while the page is in another state (pages with states only). */
+  states?: StateStyle[];
+  /** Root of a page with states: every state, the default first. Printed as `data-state` on the root. */
+  stateNames?: string[];
   /** Attributes other than the class, printed after it. */
   attrs?: [name: string, value: string][];
   children: StyledChild[];
@@ -27,20 +31,33 @@ export interface ResponsiveStyle {
   style: Decl[];
 }
 
+export interface StateStyle {
+  /** Applies while the page root has `data-state="…"`. */
+  state: string;
+  style: Decl[];
+}
+
 export type StyledChild = StyledElement | { kind: "text"; text: string } | { kind: "raw"; markup: string };
 
-/** One element per page (see `pageGroups`): frames tagged with breakpoints merge into one. */
+/** One element per page (see `pageGroups`): frames tagged with breakpoints, or with states, merge into one. */
 export function buildTree(roots: IRNode[], ctx: StyleContext): StyledElement[] {
-  return pageGroups(roots, ctx.warnings).map((group) =>
-    group.length === 1
-      ? buildNode(group[0], null, ctx)
-      : mergeScreens(
-          group.map((root) => buildNode(root, null, ctx)),
+  return pageGroups(roots, ctx.warnings).map((group) => {
+    if (group.length === 1) return buildNode(group[0], null, ctx);
+    const screens = group.map((root) => buildNode(root, null, ctx));
+    return group[0].breakpoint
+      ? mergeScreens(
+          screens,
           group.map((root) => root.breakpoint!),
           pageName(group),
           ctx.warnings,
-        ),
-  );
+        )
+      : mergeStates(
+          screens,
+          group.map((root) => root.state!),
+          pageName(group),
+          ctx.warnings,
+        );
+  });
 }
 
 function buildNode(node: IRNode, parent: FrameNode | null, ctx: StyleContext): StyledElement {

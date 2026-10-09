@@ -1,13 +1,18 @@
-// Merges the frames a user tagged as mobile / tablet / desktop into one
-// mobile-first element tree: the smallest frame's styles are the base and each
-// larger frame adds only what changes from the tier below it. Layers are paired
-// across frames by tag and layer name (plus content for text and icons); a layer
-// missing from a frame is hidden there, and children whose order differs get
-// `order` so the markup is written once.
+// Merges several selected frames of one page into one element tree, so the
+// markup is written once:
+// - frames tagged mobile / tablet / desktop: mobile-first, the smallest frame's
+//   styles are the base and each larger frame adds only what changes from the
+//   tier below it (media queries);
+// - frames tagged with a state ("default", "loading", "step-2"): the first frame
+//   is the base and every other state overrides only what differs from it, keyed
+//   on the root's `data-state`.
+// Layers are paired across frames by tag and layer name (plus content for text
+// and icons); a layer missing from a frame is hidden there, and children whose
+// order differs get `order`.
 import { BREAKPOINTS, type Breakpoint, type IRNode } from "../core/ir";
 import type { Warnings } from "../core/warnings";
 import type { Decl } from "./css";
-import type { ResponsiveStyle, StyledChild, StyledElement } from "./tree";
+import type { ResponsiveStyle, StateStyle, StyledChild, StyledElement } from "./tree";
 
 type Tier = (typeof BREAKPOINTS)[number];
 
@@ -16,42 +21,69 @@ const tierOf = (breakpoint: Breakpoint): Tier => BREAKPOINTS[tierIndex(breakpoin
 
 /**
  * Selection roots → pages. Roots tagged with distinct breakpoints form one page
- * (smallest first) where the first of them was; every other root is its own page.
+ * (smallest first) where the first of them was, and so do roots tagged with
+ * distinct states (in selection order, the first is the default); every other
+ * root is its own page.
  */
 export function pageGroups(roots: IRNode[], warnings?: Warnings): IRNode[][] {
   const groups: IRNode[][] = [];
   let responsive: IRNode[] | null = null;
+  let stateful: IRNode[] | null = null;
   for (const root of roots) {
-    if (!root.breakpoint) {
+    if (!root.breakpoint && !root.state) {
       groups.push([root]);
       continue;
     }
-    if (!responsive) {
-      responsive = [];
-      groups.push(responsive);
+    const tag = (r: IRNode) => r.breakpoint ?? r.state;
+    let group: IRNode[] | null = root.breakpoint ? responsive : stateful;
+    if (!group) {
+      group = [];
+      groups.push(group);
+      if (root.breakpoint) responsive = group;
+      else stateful = group;
     }
-    if (responsive.some((r) => r.breakpoint === root.breakpoint)) {
+    if (group.some((r) => tag(r) === tag(root))) {
       warnings?.add(
-        `More than one selected frame is tagged ${tierOf(root.breakpoint).label}; "${root.name}" is exported as a separate page.`,
+        root.breakpoint
+          ? `More than one selected frame is tagged ${tierOf(root.breakpoint).label}; "${root.name}" is exported as a separate page.`
+          : `More than one selected frame has the state "${root.state}"; "${root.name}" is exported as a separate page.`,
       );
       groups.push([root]);
       continue;
     }
-    responsive.push(root);
+    group.push(root);
   }
   responsive?.sort((a, b) => tierIndex(a.breakpoint!) - tierIndex(b.breakpoint!));
   return groups;
 }
 
-/** Page title: "Desktop Shipping & Payment" → "Shipping & Payment" for a responsive page. */
+const SEPARATORS = /^[\s\-–—/|:]+|[\s\-–—/|:]+$/g;
+
+/**
+ * Page title: "Desktop Shipping & Payment" → "Shipping & Payment" for a responsive
+ * page; the words every frame name shares ("Login Default" / "Login Error" → "Login") for states.
+ */
 export function pageName(group: IRNode[]): string {
   const name = group[0].name;
   if (group.length < 2) return name;
+  if (!group[0].breakpoint) return sharedWords(group.map((r) => r.name)) || name;
   const stripped = name
     .replace(/\b(mobile|tablet|desktop)\b/gi, "")
     .replace(/\s{2,}/g, " ")
-    .replace(/^[\s\-–—/|:]+|[\s\-–—/|:]+$/g, "");
+    .replace(SEPARATORS, "");
   return stripped || name;
+}
+
+/** Leading words all names share, else trailing ones. */
+function sharedWords(names: string[]): string {
+  const words = names.map((n) => n.trim().split(/\s+/));
+  const shared = (pick: (w: string[], i: number) => string | undefined) => {
+    const out: string[] = [];
+    for (let i = 0; words.every((w) => i < w.length - 1 && pick(w, i) === pick(words[0], i)); i++) out.push(pick(words[0], i)!);
+    return out;
+  };
+  const leading = shared((w, i) => w[i]).join(" ").replace(SEPARATORS, "");
+  return leading || shared((w, i) => w[w.length - 1 - i]).reverse().join(" ").replace(SEPARATORS, "");
 }
 
 /** Viewport width to preview a tagged frame at: its own width, kept inside its tier's range. */
@@ -69,27 +101,41 @@ export const breakpointLabel = (breakpoint: Breakpoint) => tierOf(breakpoint).la
 /** Per tier: the layer there, `null` when its parent shows there but it doesn't, `undefined` when the parent is hidden too. */
 type Variants = (StyledElement | null | undefined)[];
 
+/** Per frame, the declarations wanted there: null when hidden, undefined when its parent is hidden too. */
+type Targets = (Decl[] | null | undefined)[];
+
 interface MergeState {
-  tiers: Tier[];
+  /** Targets → the element's base style plus its overrides. */
+  cascade: (targets: Targets) => Pick<StyledElement, "style" | "responsive" | "states">;
   /** Layers present in only some frames. */
   partial: number;
 }
 
 /** One built tree per tagged frame, smallest first. */
 export function mergeScreens(screens: StyledElement[], breakpoints: Breakpoint[], name: string, warnings: Warnings): StyledElement {
-  const state: MergeState = { tiers: breakpoints.map(tierOf), partial: 0 };
+  const tiers = breakpoints.map(tierOf);
+  return { ...merge(screens.map(fluid), (targets) => cascade(targets, tiers), warnings), name };
+}
+
+/** One built tree per tagged frame, the default state first. */
+export function mergeStates(screens: StyledElement[], states: string[], name: string, warnings: Warnings): StyledElement {
+  return { ...merge(screens, (targets) => overrides(targets, states), warnings), name, stateNames: states };
+}
+
+function merge(screens: StyledElement[], cascade: MergeState["cascade"], warnings: Warnings): StyledElement {
+  const state: MergeState = { cascade, partial: 0 };
   const merged = mergeElement(
-    screens.map(fluid),
+    screens,
     screens.map(() => []),
     state,
   );
   if (state.partial > 0) {
     warnings.add(
-      `${state.partial} layer(s) exist in only some breakpoint frames and are hidden elsewhere with display: none. ` +
+      `${state.partial} layer(s) exist in only some of the merged frames and are hidden elsewhere with display: none. ` +
         "Give layers the same names in every frame so they share markup.",
     );
   }
-  return { ...merged, name };
+  return merged;
 }
 
 /** Frames have a fixed width; the page fills the viewport instead, and each frame's height becomes a minimum. */
@@ -101,9 +147,8 @@ function fluid(root: StyledElement): StyledElement {
 function mergeElement(variants: Variants, extras: Decl[][], state: MergeState): StyledElement {
   const template = variants.find((v): v is StyledElement => !!v)!;
   const targets = variants.map((v, i) => (v ? [...v.style, ...extras[i]] : v));
-  const { base, responsive } = cascade(targets, state.tiers);
   const children = isLeaf(template) ? mergeLeafChildren(variants, state) : mergeChildren(variants, state);
-  return { ...template, style: base, ...(responsive.length > 0 ? { responsive } : {}), children };
+  return { ...template, ...state.cascade(targets), children };
 }
 
 /** Text and icons only pair up when their content matches, so their children line up one to one. */
@@ -196,8 +241,8 @@ function content(children: StyledChild[]): string {
 
 // ---------------------------------------------------------------------------
 
-/** Per tier, the declarations wanted there (or null: hidden, undefined: nothing to say) → base + per-tier overrides. */
-function cascade(targets: (Decl[] | null | undefined)[], tiers: Tier[]): { base: Decl[]; responsive: ResponsiveStyle[] } {
+/** Per tier, smallest first: each tier overrides what changes from the one below it. */
+function cascade(targets: Targets, tiers: Tier[]): Pick<StyledElement, "style" | "responsive"> {
   let current = new Map<string, string>();
   let base: Decl[] = [];
   const responsive: ResponsiveStyle[] = [];
@@ -211,7 +256,21 @@ function cascade(targets: (Decl[] | null | undefined)[], tiers: Tier[]): { base:
     }
     current = wanted;
   });
-  return { base, responsive };
+  return { style: base, ...(responsive.length > 0 ? { responsive } : {}) };
+}
+
+/** Per state: the first is the base and every other state overrides only what differs from it, not from each other. */
+function overrides(targets: Targets, names: string[]): Pick<StyledElement, "style" | "states"> {
+  // Absent from the default state: take the look of the first state that has it, hidden.
+  const base = new Map(targets[0] ?? targets.find((t) => t)!);
+  if (targets[0] === null) base.set("display", "none");
+  const states: StateStyle[] = [];
+  targets.forEach((target, i) => {
+    if (target === undefined) return;
+    const style = diff(base, target === null ? new Map([...base, ["display", "none"]]) : new Map(target));
+    if (style.length > 0) states.push({ state: names[i], style });
+  });
+  return { style: [...base], ...(states.length > 0 ? { states } : {}) };
 }
 
 const PADDING = ["padding-top", "padding-right", "padding-bottom", "padding-left"];
@@ -252,7 +311,10 @@ const RESET: Record<string, string> = {
   "margin-left": "0",
   position: "static",
   left: "auto",
+  right: "auto",
   top: "auto",
+  bottom: "auto",
+  "z-index": "auto",
   width: "auto",
   height: "auto",
   "min-width": "auto",

@@ -32,7 +32,7 @@ export function elideDataUris(code: string): string {
   return out + code.slice(from);
 }
 
-function isBase64(c: number): boolean {
+export function isBase64(c: number): boolean {
   return (
     (c >= 65 && c <= 90) || // A-Z
     (c >= 97 && c <= 122) || // a-z

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BREAKPOINTS, isBreakpoint } from "../core/ir";
+import { BREAKPOINTS, isBreakpoint, type Breakpoint } from "../core/ir";
+import { defaultStateNames, guessBreakpoints, toStateName } from "../core/pageTags";
 import type { HubState } from "../shared/bridge";
 import type { CodeSection, GenerateResult, SelectionSource, ToUIMessage, UIResult } from "../shared/messages";
 import type { ProjectFile } from "../generators/project";
@@ -13,6 +14,7 @@ import { ChevronIcon, CopyIcon, ExportIcon, FrameIcon, ImageIcon, SlidersIcon, S
 import { McpPanel } from "./McpPanel";
 import { optimizeFiles } from "./optimize";
 import { addImages, imageBytes, usePreviewHtml } from "./images";
+import { estimateTokens, formatTokens } from "./tokens";
 import { createZip } from "./zip";
 
 type Status = "loading" | "empty" | "ready" | "error";
@@ -160,8 +162,8 @@ export function App() {
 
       {showResult && (
         <>
-          {source && (source.nodes.length > 1 || source.nodes.some((n) => n.breakpoint)) && (
-            <BreakpointBar nodes={source.nodes} />
+          {source && (source.nodes.length > 1 || source.nodes.some((n) => n.breakpoint || n.state)) && (
+            <PageBar nodes={source.nodes} />
           )}
           <nav className="tabbar">
             <div className="tabs" role="tablist">
@@ -182,7 +184,7 @@ export function App() {
                 Preview
               </button>
             </div>
-            <span className="spacer" />
+            <TokenCount sections={result.sections} current={view === "code" ? section : null} />
             {view === "code" && current && (
               <CopyButton text={current.code} title="Copy code" className="btn-icon">
                 <CopyIcon />
@@ -193,7 +195,7 @@ export function App() {
               <button
                 className="btn-icon"
                 disabled={exporting}
-                title={`${EXPORT_LABEL[settings.target]}: one page per selected frame; frames tagged with breakpoints share one responsive page`}
+                title={`${EXPORT_LABEL[settings.target]}: one page per selected frame; frames tagged with breakpoints or states share one page`}
                 aria-label={EXPORT_LABEL[settings.target]}
                 onClick={() => {
                   setExporting(true);
@@ -309,6 +311,22 @@ function CodeView({ section }: { section: CodeSection }) {
   );
 }
 
+/** Estimated tokens of the code tab shown (or of all of them), filling the space before the tab bar's buttons. */
+function TokenCount({ sections, current }: { sections: CodeSection[]; current: number | null }) {
+  const counts = useMemo(() => sections.map((s) => estimateTokens(s.code)), [sections]);
+  const total = counts.reduce((sum, n) => sum + n, 0);
+  const shown = current !== null && current < counts.length ? counts[current] : total;
+  const scope = current !== null && counts.length > 1 ? `this file; all files ≈ ${formatTokens(total)}` : "all code";
+  return (
+    <span
+      className="token-count"
+      title={`≈ ${shown.toLocaleString("en")} tokens (${scope}). A rough estimate, about ±15% for GPT models; Claude and other models count differently.`}
+    >
+      ≈ {formatTokens(shown)} tokens
+    </span>
+  );
+}
+
 function Warnings({ warnings }: { warnings: string[] }) {
   const [open, setOpen] = useState(false);
   return (
@@ -391,38 +409,107 @@ function DownloadImagesButton({ images, optimize }: { images: UIResult["images"]
   );
 }
 
-/** Tag selected frames as mobile / tablet / desktop; tagged frames merge into one responsive page. */
-function BreakpointBar({ nodes }: { nodes: SelectionSource["nodes"] }) {
+type PageMode = "separate" | "responsive" | "states";
+
+const PAGE_MODES: { mode: PageMode; label: string; title: string }[] = [
+  { mode: "separate", label: "Separate", title: "Each selected frame is its own page" },
+  { mode: "responsive", label: "Responsive", title: "One page; each frame is a breakpoint (mobile-first media queries)" },
+  { mode: "states", label: "States", title: "One page; each frame is a state of it (UI states or flow steps), switched with data-state" },
+];
+
+/**
+ * How the selected frames become pages: separately, as the breakpoints of one
+ * responsive page, or as the states of one page. Picking a mode tags every frame
+ * with a guess; each chip then fine-tunes one frame (an untagged frame stays its own page).
+ */
+function PageBar({ nodes }: { nodes: SelectionSource["nodes"] }) {
+  const mode: PageMode = nodes.some((n) => n.state) ? "states" : nodes.some((n) => n.breakpoint) ? "responsive" : "separate";
+  const tag = (tags: { nodeId: string; breakpoint?: Breakpoint; state?: string }[]) => send({ type: "tag-frames", tags });
+
+  const choose = (next: PageMode) => {
+    if (next === mode) return;
+    const breakpoints = next === "responsive" ? guessBreakpoints(nodes) : [];
+    const states = next === "states" ? defaultStateNames(nodes.map((n) => n.name)) : [];
+    tag(nodes.map((n, i) => ({ nodeId: n.id, breakpoint: breakpoints[i], state: states[i] })));
+  };
+  const defaultState = nodes.find((n) => n.state)?.id;
+
   return (
     <section className="breakpoints">
-      <span
-        className="eyebrow"
-        title="Frames tagged with a breakpoint merge into one responsive page; untagged frames stay separate pages"
-      >
-        Breakpoints
-      </span>
-      <div className="breakpoint-chips">
-        {nodes.map((n) => (
-          <label key={n.id} className="breakpoint-chip" title={n.name}>
-            <span className="breakpoint-name">{n.name}</span>
-            <select
-              value={n.breakpoint ?? ""}
-              onChange={(e) => {
-                const value = e.target.value;
-                send({ type: "set-breakpoint", nodeId: n.id, breakpoint: isBreakpoint(value) ? value : null });
-              }}
-            >
-              <option value="">None</option>
-              {BREAKPOINTS.map((b) => (
-                <option key={b.name} value={b.name}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
+      <div className="page-mode">
+        <span className="eyebrow">Pages</span>
+        <div className="segmented" role="tablist">
+          {PAGE_MODES.map((m) => (
+            <button key={m.mode} role="tab" title={m.title} aria-selected={m.mode === mode} onClick={() => choose(m.mode)}>
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
+      {mode !== "separate" && (
+        <div className="breakpoint-chips">
+          {nodes.map((n) => (
+            <label key={n.id} className="breakpoint-chip" title={n.name}>
+              <span className="breakpoint-name">{n.name}</span>
+              {mode === "responsive" ? (
+                <select
+                  value={n.breakpoint ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    tag([{ nodeId: n.id, breakpoint: isBreakpoint(value) ? value : undefined }]);
+                  }}
+                >
+                  <option value="">None</option>
+                  {BREAKPOINTS.map((b) => (
+                    <option key={b.name} value={b.name}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <StateInput
+                  value={n.state ?? ""}
+                  isDefault={n.id === defaultState}
+                  onCommit={(state) => tag([{ nodeId: n.id, state: state || undefined }])}
+                />
+              )}
+            </label>
+          ))}
+        </div>
+      )}
     </section>
+  );
+}
+
+/** State name of one frame, saved on Enter or blur; empty makes the frame its own page. */
+function StateInput({ value, isDefault, onCommit }: { value: string; isDefault: boolean; onCommit: (state: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    const next = toStateName(draft);
+    setDraft(next);
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <>
+      <input
+        className="state-input"
+        value={draft}
+        placeholder="None"
+        aria-label="State name"
+        size={Math.max(4, draft.length)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      {isDefault && (
+        <span className="state-default" title="The first state is the default">
+          default
+        </span>
+      )}
+    </>
   );
 }
 
@@ -433,12 +520,18 @@ function agentPrompt(source: SelectionSource, target: Target): string {
       ? ` ${figmaUrl(source.fileKey, source.fileName)}?node-id=${id.replace(":", "-")}`
       : "";
   const layers = source.nodes
-    .map((n) => `- "${n.name}" (node id ${n.id}${n.breakpoint ? `, ${n.breakpoint} breakpoint` : ""})${link(n.id)}`)
+    .map((n) => {
+      const tag = n.breakpoint ? `, ${n.breakpoint} breakpoint` : n.state ? `, state "${n.state}"` : "";
+      return `- "${n.name}" (node id ${n.id}${tag})${link(n.id)}`;
+    })
     .join("\n");
+  const states = source.nodes.filter((n) => n.state).map((n) => n.state);
   const responsive =
     source.nodes.filter((n) => n.breakpoint).length > 1
       ? "\nThe frames tagged with a breakpoint are one responsive page; the reference code already merges them mobile-first (md = 768px, lg = 1024px).\n"
-      : "";
+      : states.length > 1
+        ? `\nThe frames tagged with a state are one page in different states (${states.join(", ")}; "${states[0]}" is the default); the reference code already merges them, switching on the root's data-state. Drive the state from this codebase's own state (props, store, route).\n`
+        : "";
   const ids = JSON.stringify(source.nodes.map((n) => n.id));
   return `Implement this Figma design in this codebase, using the goapp-figma MCP server.
 
@@ -455,24 +548,29 @@ function figmaUrl(fileKey: string, fileName: string): string {
   return `https://www.figma.com/design/${fileKey}/${encodeURIComponent(slug)}`;
 }
 
-/** A responsive page previews at each tagged frame's width, so its media queries apply as on a real screen. */
+/**
+ * A responsive page previews at each tagged frame's width, so its media queries
+ * apply as on a real screen; a page with states previews in each state.
+ */
 function ResponsivePreview({ result }: { result: UIResult }) {
   const [index, setIndex] = useState<number | null>(null);
   const html = usePreviewHtml(result.previewHtml, result.previewImages);
   const sizes = result.previewSizes;
   if (html === null) return <EmptyState title="Preparing images…" caption="Scaling the design's images down for the preview." loading />;
   if (!sizes) return <Preview html={html} size={result.previewSize} />;
-  const current = index !== null && index < sizes.length ? index : sizes.length - 1;
+  // Breakpoints open on the largest; states on the default.
+  const fallback = sizes[0].state ? 0 : sizes.length - 1;
+  const current = index !== null && index < sizes.length ? index : fallback;
   return (
     <div className="preview-stack">
       <div className="segmented" role="tablist">
         {sizes.map((s, i) => (
           <button key={s.label} role="tab" aria-selected={i === current} onClick={() => setIndex(i)}>
-            {s.label} <span className="muted">{s.width}px</span>
+            {s.label} {!s.state && <span className="muted">{s.width}px</span>}
           </button>
         ))}
       </div>
-      <Preview html={html} size={sizes[current]} />
+      <Preview html={html} size={sizes[current]} state={sizes[current].state} />
     </div>
   );
 }
@@ -483,11 +581,20 @@ function ResponsivePreview({ result }: { result: UIResult }) {
  * (real fonts, wrapping), and a frame-height iframe scrolled inside itself.
  * Reading the content height needs allow-same-origin; scripts stay disabled.
  */
-function Preview({ html, size }: { html: string; size: GenerateResult["previewSize"] }) {
+function Preview({ html, size, state }: { html: string; size: GenerateResult["previewSize"]; state?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [scale, setScale] = useState(1);
   const [height, setHeight] = useState(size.height);
+
+  // A page with states shows the one picked; scripts are off in the frame, so set it from here.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const showState = () => {
+    const root = frame.current?.contentDocument?.querySelector<HTMLElement>("[data-state]");
+    if (root && stateRef.current) root.dataset.state = stateRef.current;
+  };
+  useEffect(showState, [state]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -516,6 +623,7 @@ function Preview({ html, size }: { html: string; size: GenerateResult["previewSi
       if (content > 0) setHeight(content);
     };
     const onLoad = () => {
+      showState();
       measure();
       observer?.disconnect();
       const body = iframe.contentDocument?.body;
@@ -525,7 +633,12 @@ function Preview({ html, size }: { html: string; size: GenerateResult["previewSi
       }
     };
     iframe.addEventListener("load", onLoad);
+    // Same document at another size or state: no load event comes, so measure once the new height is in.
+    const raf = requestAnimationFrame(() => {
+      if (iframe.contentDocument?.readyState === "complete") onLoad();
+    });
     return () => {
+      cancelAnimationFrame(raf);
       iframe.removeEventListener("load", onLoad);
       observer?.disconnect();
     };

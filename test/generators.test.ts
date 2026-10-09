@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sniffImageSize, sniffImageType } from "../src/core/image";
-import type { AutoLayout, ImageAsset } from "../src/core/ir";
+import type { AutoLayout, Constraint, ImageAsset } from "../src/core/ir";
 import { Warnings } from "../src/core/warnings";
 import { generate } from "../src/generators";
 import { nodeStyle, type StyleContext } from "../src/generators/css";
@@ -71,6 +71,30 @@ describe("css", () => {
         ["transform", "rotate(45deg)"],
       ]),
     );
+  });
+
+  it("anchors absolute layers to the edges their constraints pin them to", () => {
+    const pinned = (horizontal: Constraint, vertical: Constraint) => {
+      const child = shape({ positioning: "absolute", box: { x: 100, y: 20, width: 40, height: 40, rotation: 0 }, constraints: { horizontal, vertical } });
+      return nodeStyle(child, frame({ children: [child] }), ctx());
+    };
+    // Parent is 320 × 200.
+    expect(pinned("end", "end")).toEqual(expect.arrayContaining([["right", "180px"], ["bottom", "140px"], ["width", "40px"]]));
+    expect(pinned("center", "start")).toContainEqual(["left", "calc(50% - 60px)"]);
+    const stretched = pinned("stretch", "scale");
+    expect(stretched).toEqual(expect.arrayContaining([["left", "100px"], ["right", "180px"], ["top", "10%"], ["height", "20%"]]));
+    expect(stretched.some(([p]) => p === "width")).toBe(false);
+  });
+
+  it("turns negative auto layout spacing into overlapping margins", () => {
+    const first = shape({ id: "a" });
+    const second = shape({ id: "b" });
+    const parent = frame({ layout: { ...column, gap: -100, reverseZIndex: true }, children: [first, second] });
+    expect(nodeStyle(parent, null, ctx()).some(([p]) => p === "gap")).toBe(false);
+    expect(nodeStyle(first, parent, ctx())).toEqual(expect.arrayContaining([["position", "relative"], ["z-index", "2"]]));
+    const style = nodeStyle(second, parent, ctx());
+    expect(style).toEqual(expect.arrayContaining([["margin-top", "-100px"], ["z-index", "1"]]));
+    expect(toTailwind(style)).toEqual(expect.arrayContaining(["-mt-25", "z-1"]));
   });
 
   it("subtracts inside borders from padding when strokes are outside layout", () => {

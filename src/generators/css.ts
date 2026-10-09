@@ -2,7 +2,7 @@
 // layout and styling map to CSS; the Tailwind generator translates these
 // declarations into classes instead of re-deriving the rules.
 import { cssColor, cssGradientStops, fmt } from "../core/color";
-import type { Fill, FrameNode, IRNode, Sides, Stroke, SvgNode, TextSegment } from "../core/ir";
+import type { Constraint, Fill, FrameNode, IRNode, Sides, Stroke, SvgNode, TextSegment } from "../core/ir";
 import type { Warnings } from "../core/warnings";
 
 export type Decl = [property: string, value: string];
@@ -62,21 +62,31 @@ export function nodeStyle(node: IRNode, parent: FrameNode | null, ctx: StyleCont
 
   // --- Where this element sits in its parent --------------------------------
   const isAbsolute = parent !== null && node.positioning === "absolute";
+  const overlap = isAbsolute ? null : overlapStyle(node, parent);
   if (isAbsolute) {
-    // Absolute offsets are measured from the parent's padding box (inside its border).
-    const parentBorder = insideBorder(parent);
     push("position", "absolute");
-    push("left", px(node.box.x - (parentBorder?.left ?? 0)));
-    push("top", px(node.box.y - (parentBorder?.top ?? 0)));
-  } else if (node.kind === "frame" && node.children.some((c) => c.positioning === "absolute")) {
+    decls.push(...pinStyle(node, parent));
+  } else if (overlap?.zIndex !== undefined || (node.kind === "frame" && node.children.some((c) => c.positioning === "absolute"))) {
     push("position", "relative");
   }
-  if (!isAbsolute && node.margin) {
-    if (node.margin.top !== 0) push("margin-top", px(node.margin.top));
-    if (node.margin.left !== 0) push("margin-left", px(node.margin.left));
+  if (overlap?.zIndex !== undefined) push("z-index", String(overlap.zIndex));
+  if (!isAbsolute) {
+    const top = (node.margin?.top ?? 0) + (overlap?.margin.top ?? 0);
+    const left = (node.margin?.left ?? 0) + (overlap?.margin.left ?? 0);
+    if (top !== 0) push("margin-top", px(top));
+    if (left !== 0) push("margin-left", px(left));
   }
 
-  decls.push(...sizeStyle(node, parent));
+  const size = sizeStyle(node, parent);
+  const { horizontal, vertical } = (isAbsolute && node.constraints) || {};
+  for (const [property, value] of size) {
+    // Pinned to both edges, the size follows from the offsets; scaled, it is a share of the parent.
+    if (property === "width" && horizontal === "stretch") continue;
+    if (property === "height" && vertical === "stretch") continue;
+    if (property === "width" && horizontal === "scale") push(property, percent(node.box.width, innerSize(parent!).width));
+    else if (property === "height" && vertical === "scale") push(property, percent(node.box.height, innerSize(parent!).height));
+    else push(property, value);
+  }
 
   const transforms = [
     ...(node.box.rotation !== 0 ? [`rotate(${fmt(node.box.rotation)}deg)`] : []),
@@ -156,6 +166,74 @@ function sizeStyle(node: IRNode, parent: FrameNode | null): Decl[] {
 }
 
 const nonNull = <T>(value: T | null): T[] => (value === null ? [] : [value]);
+
+const percent = (part: number, whole: number) => (whole === 0 ? "0" : `${fmt((part / whole) * 100)}%`);
+
+/** The parent's padding box, which absolute offsets are measured from (inside its border). */
+function innerSize(parent: FrameNode): { width: number; height: number } {
+  const border = insideBorder(parent);
+  return {
+    width: parent.box.width - (border?.left ?? 0) - (border?.right ?? 0),
+    height: parent.box.height - (border?.top ?? 0) - (border?.bottom ?? 0),
+  };
+}
+
+/** Offsets of an absolute layer, anchored to the parent edges its constraints pin it to. */
+function pinStyle(node: IRNode, parent: FrameNode): Decl[] {
+  const border = insideBorder(parent);
+  const inner = innerSize(parent);
+  const { horizontal = "start", vertical = "start" } = node.constraints ?? {};
+  return [
+    ...pin(["left", "right"], node.box.x - (border?.left ?? 0), node.box.width, inner.width, horizontal),
+    ...pin(["top", "bottom"], node.box.y - (border?.top ?? 0), node.box.height, inner.height, vertical),
+  ];
+}
+
+function pin(
+  [start, end]: [string, string],
+  offset: number,
+  size: number,
+  parentSize: number,
+  constraint: Constraint,
+): Decl[] {
+  const after = parentSize - offset - size;
+  switch (constraint) {
+    case "start":
+      return [[start, px(offset)]];
+    case "end":
+      return [[end, px(after)]];
+    case "stretch":
+      return [
+        [start, px(offset)],
+        [end, px(after)],
+      ];
+    case "scale":
+      return [[start, percent(offset, parentSize)]];
+    case "center": {
+      // Keep the layer's distance from the parent's center line.
+      const shift = offset - parentSize / 2;
+      return [[start, shift === 0 ? "50%" : `calc(50% ${shift < 0 ? "-" : "+"} ${px(Math.abs(shift))})`]];
+    }
+  }
+}
+
+/**
+ * Negative auto layout spacing overlaps items, which `gap` can't express: each
+ * item after the first is pulled back by a negative margin instead. With
+ * "first on top" stacking, earlier items are raised above later ones.
+ */
+function overlapStyle(node: IRNode, parent: FrameNode | null): { margin: { top: number; left: number }; zIndex?: number } | null {
+  const layout = parent?.layout;
+  if (!layout || layout.gap >= 0 || layout.wrap || layout.justify === "space-between") return null;
+  const flow = parent.children.filter((c) => c.positioning === "flow");
+  const index = flow.indexOf(node);
+  if (index === -1) return null;
+  const pull = index === 0 ? 0 : layout.gap;
+  return {
+    margin: layout.direction === "row" ? { top: 0, left: pull } : { top: pull, left: 0 },
+    ...(layout.reverseZIndex ? { zIndex: flow.length - index } : {}),
+  };
+}
 
 function backgroundLayer(fill: Fill, ctx: StyleContext): string {
   switch (fill.type) {

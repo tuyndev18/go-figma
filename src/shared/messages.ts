@@ -22,7 +22,7 @@ export interface GenerateResult {
   /** Self-contained HTML document used for the live preview. */
   previewHtml: string;
   previewSize: { width: number; height: number };
-  /** Set for a responsive page: one viewport per tagged frame, smallest first. */
+  /** Set for a merged page: one viewport per tagged frame (smallest first, or the default state first). */
   previewSizes?: PreviewSize[];
   warnings: string[];
   /** Image files referenced by the code as `images/<fileName>`; `fit` is the size to scale them to. */
@@ -48,6 +48,8 @@ export interface PreviewSize {
   label: string;
   width: number;
   height: number;
+  /** Page with states: the `data-state` to show. */
+  state?: string;
 }
 
 /** Where a result came from, so the UI can point an AI agent at the same layers. */
@@ -55,7 +57,7 @@ export interface SelectionSource {
   fileName: string;
   /** Only exposed to some plugins; used to build a Figma link. */
   fileKey?: string;
-  nodes: { id: string; name: string; breakpoint?: Breakpoint }[];
+  nodes: { id: string; name: string; width: number; breakpoint?: Breakpoint; state?: string }[];
 }
 
 /** Messages sent from the plugin sandbox to the UI iframe. */
@@ -78,7 +80,8 @@ export type ToPluginMessage =
   | { type: "ui-ready"; screen?: { width: number; height: number } }
   | { type: "update-settings"; settings: Partial<Settings> }
   | { type: "export-project" }
-  | { type: "set-breakpoint"; nodeId: string; breakpoint: Breakpoint | null }
+  /** Replaces each frame's tags: a breakpoint, a state, or neither (its own page). */
+  | { type: "tag-frames"; tags: { nodeId: string; breakpoint?: Breakpoint; state?: string }[] }
   | { type: "resize"; width: number; height: number }
   | { type: "notify"; message: string }
   | { type: "bridge-request"; request: BridgeRequest }

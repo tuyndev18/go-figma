@@ -28,9 +28,23 @@ Nút **Export** trên thanh tab tải về `<tên-frame>.zip`. Mỗi frame đang
 
 Tên page/route lấy từ tên layer, bỏ dấu tiếng Việt ("Lời mời thi đấu" → `loi-moi-thi-dau`).
 
-## Responsive (1 page – nhiều breakpoint)
+## Gộp nhiều frame thành 1 page
 
-Chọn các frame của cùng một màn (vd. `Mobile Shipping`, `Tablet Shipping`, `Desktop Shipping`), rồi ở thanh **Breakpoints** gán cho mỗi frame Mobile / Tablet / Desktop. Giá trị được lưu vào frame (plugin data), nên lần sau và MCP server đều đọc được.
+Khi chọn nhiều frame, thanh **Pages** có 3 chế độ:
+
+| Chế độ | Kết quả |
+| --- | --- |
+| **Separate** | Mỗi frame là một page riêng (mặc định). |
+| **Responsive** | Một page, mỗi frame là một breakpoint (Mobile / Tablet / Desktop). |
+| **States** | Một page, mỗi frame là một trạng thái: trạng thái UI (empty / loading / error, đã login…) hoặc các bước của một flow (step-1, step-2…). |
+
+Khi chọn chế độ, plugin tự gán tag cho từng frame: breakpoint đoán theo tên frame, nếu không có thì theo chiều rộng; tên state lấy phần khác nhau giữa các tên frame. Sau đó có thể sửa từng chip. Frame để trống (None) vẫn là page riêng. Tag được lưu vào frame (plugin data), nên lần sau mở lại và MCP server đều đọc được.
+
+Cả hai chế độ gộp đều ghép layer giữa các frame theo cùng một cách (xem bên dưới). Muốn markup gọn thì đặt tên layer giống nhau ở mọi frame.
+
+### Responsive (1 page – nhiều breakpoint)
+
+Chọn các frame của cùng một màn (vd. `Mobile Shipping`, `Tablet Shipping`, `Desktop Shipping`), chọn **Responsive** rồi kiểm tra Mobile / Tablet / Desktop của mỗi frame.
 
 Các frame đã gán sẽ gộp thành **một** page, viết theo kiểu mobile-first:
 
@@ -41,6 +55,20 @@ Các frame đã gán sẽ gộp thành **một** page, viết theo kiểu mobile
 - Preview có nút chuyển viewport theo từng breakpoint.
 
 Muốn markup gọn thì đặt tên layer giống nhau ở mọi frame. Layer tên khác nhau vẫn ra đúng giao diện nhưng bị lặp DOM, và plugin sẽ cảnh báo.
+
+### States (1 page – nhiều trạng thái)
+
+Chọn các frame là các trạng thái của cùng một màn (vd. `Login Default`, `Login Error`, hoặc `Checkout Step 1`, `Checkout Step 2`), chọn **States** rồi sửa tên state nếu cần. Frame có state đầu tiên (theo thứ tự chọn) là trạng thái **default**.
+
+- State default làm style gốc. Mỗi state khác chỉ override phần khác so với default, không so với state trước nó. Root của page có `data-state="<state>"`.
+- HTML + CSS: `.login[data-state="error"] .alert { … }`.
+- Tailwind: root có class `group`, con dùng `group-data-[state=error]:…`, root dùng `data-[state=error]:…`.
+- React: component nhận prop `state` (mặc định là state default). Trong Next.js export, page đọc `?state=…` từ URL.
+- Site tĩnh export: có một script nhỏ đọc `?state=…`, ví dụ `index.html?state=error`.
+- Layer chỉ có ở một số state sẽ bị ẩn (`display: none`) ở các state còn lại. Frame giữ nguyên kích thước, không chuyển thành `width: 100%` như Responsive.
+- Preview có nút chuyển giữa các state.
+
+Chỉ một trong hai chế độ được dùng cho một lần gộp, không kết hợp breakpoint × state.
 
 ## MCP cho AI agent (Claude Code, Codex, Cursor…)
 

@@ -1,7 +1,7 @@
 // Sparse XML outline of layers, like Figma's own MCP get_metadata: ids, names,
 // types, positions and sizes, no styling. Cheap enough to send for a whole
 // page, so agents can orient themselves and pick sections to zoom into.
-import { componentRef, readBreakpoint } from "../core/normalize";
+import { componentRef, readBreakpoint, readState } from "../core/normalize";
 
 const MAX_TEXT = 80;
 
@@ -38,6 +38,7 @@ async function nodeXml(node: SceneNode, depth: number, indent: number): Promise<
     width: round(node.width),
     height: round(node.height),
     breakpoint: readBreakpoint(node),
+    state: readBreakpoint(node) ? undefined : readState(node),
   };
 
   if ("layoutMode" in node && node.layoutMode !== "NONE") {
