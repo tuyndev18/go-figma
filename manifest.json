@@ -1,0 +1,21 @@
+{
+  "name": "GoApp Figma",
+  "id": "go-figma-dev",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma", "dev"],
+  "capabilities": ["inspect", "codegen"],
+  "permissions": [],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+    "devAllowedDomains": ["ws://localhost:3940"],
+    "reasoning": "The code preview loads the design's fonts from Google Fonts. In development, the plugin connects to the local GoApp Figma MCP server so AI agents can read the selection."
+  },
+  "codegenLanguages": [
+    { "label": "HTML + CSS", "value": "html-css" },
+    { "label": "React + Tailwind", "value": "react-tailwind" },
+    { "label": "HTML + Tailwind", "value": "html-tailwind" }
+  ]
+}
